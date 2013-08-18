@@ -2,7 +2,7 @@ SRC=cpp11move.cpp
 
 CC=g++49
 
-CFLAGS = -I. -I/usr/local/lib/gcc49/include/c++ -std=gnu++11 -g  
+CFLAGS = -I. -I/usr/local/lib/gcc49/include/c++ -std=c++11 -g  
 TARGET=test
 
 all:
