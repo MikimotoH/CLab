@@ -55,30 +55,31 @@ flags = [
 # language that the files to be compiled are written in. This is mostly
 # relevant for c++ headers.
 # For a C project, you would set this to 'c' instead of 'c++'.
-'-x',
-'c++',
-'-isystem',
-'../BoostParts',
-'-isystem',
+'-x', 'c++',
+
+'-isystem', '../BoostParts',
+
 # This path will only work on OS X, but extra paths that don't exist are not
 # harmful
-'/System/Library/Frameworks/Python.framework/Headers',
-'-isystem',
-'../llvm/include',
-'-isystem',
-'../llvm/tools/clang/include',
-'-I',
-'.',
-'-I',
-'./ClangCompleter',
-'-isystem',
-'./tests/gmock/gtest',
-'-isystem',
-'./tests/gmock/gtest/include',
-'-isystem',
-'./tests/gmock',
-'-isystem',
-'./tests/gmock/include'
+'-isystem', '/usr/local/include/c++/v1',
+'-isystem', '/usr/local/lib/clang/3.3/include',
+
+'-isystem', '../llvm/include',
+
+'-isystem', '../llvm/tools/clang/include',
+
+'-I', '.',
+
+'-I', '/usr/local/include/boost',
+'-I', './ClangCompleter',
+
+'-isystem', './tests/gmock/gtest',
+
+'-isystem', './tests/gmock/gtest/include',
+
+'-isystem', './tests/gmock',
+
+'-isystem', './tests/gmock/include'
 ]
 
 # Set this to the absolute path to the folder (NOT the file!) containing the
@@ -140,10 +141,10 @@ def FlagsForFile( filename ):
     # NOTE: This is just for YouCompleteMe; it's highly likely that your project
     # does NOT need to remove the stdlib flag. DO NOT USE THIS IN YOUR
     # ycm_extra_conf IF YOU'RE NOT 100% YOU NEED IT.
-    try:
-      final_flags.remove( '-stdlib=libc++' )
-    except ValueError:
-      pass
+    #try:
+      #final_flags.remove( '-stdlib=libc++' )
+    #except ValueError:
+      #pass
   else:
     relative_to = DirectoryOfThisScript()
     final_flags = MakeRelativePathsInFlagsAbsolute( flags, relative_to )
