@@ -3,3 +3,4 @@ tags
 clang_log.txt
 *.o
 .*.swp
+*.pyc
