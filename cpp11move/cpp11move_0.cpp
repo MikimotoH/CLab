@@ -24,7 +24,8 @@ public:
         memset(buf, 0, len);
     }
     mystr(const mystr& rhs){
-        printf("copy ctor const& \"%s\", len=%d\n", rhs.buf, rhs.len);
+        printf("copy ctor const& \"%s\", len=%d\n", rhs.buf, 
+                rhs.len);
         buf = strdup(rhs.buf);
         len = rhs.len;
     }
@@ -51,7 +52,8 @@ public:
     mystr(mystr&& rhs)
         : len(0), buf(NULL)
     {
-        printf("ctor RRValue; swap: buf=\"%s\" len=%d \n", rhs.buf, rhs.len);
+        printf("ctor RRValue; swap: buf=\"%s\" len=%d \n", rhs.buf, 
+                rhs.len);
         std::swap(buf, rhs.buf);
         std::swap(len, rhs.len);
     }
@@ -66,7 +68,8 @@ public:
     }
 
     mystr& operator+=(const mystr& rhs){
-        printf("concat \"%s\" + \"%s\", len=(%d + %d)\n", buf, rhs.buf, len, rhs.len);
+        printf("concat \"%s\" + \"%s\", len=(%d + %d)\n", buf, 
+                rhs.buf, len, rhs.len);
         char* newbuf = (char*)malloc(len + rhs.len + 1);
         memcpy(newbuf, buf, len);
         memcpy(newbuf+len, rhs.buf, rhs.len);
@@ -92,50 +95,3 @@ int main(){
     return 0;
 }
 
-
-
-
-
-
-
-
-
-/**
-string nick()
-{
-  return string{"fre@k"};
-}
-int main(){
-    std::string x = "this is a string";
-    std::string y = move(x); // No copy
-    auto z = nick(); // No copy
-    return 0;
-}
-*/
-/*
-inline mystr operator+(const mystr& a, const mystr& b){
-    mystr c=a;
-    c += b;
-    return c;
-}
-mystr foo1(const mystr& rhs){
-    printf("foo1\n");
-    mystr ret(4 + rhs.len);
-    sprintf(ret.buf, "foo %s", rhs.buf);
-    return ret;
-}
-mystr foo2(const char* x){
-    printf("foo2\n");
-    char buf[256];
-    sprintf(buf, "%s foo2", x);
-    return mystr(buf);
-}
-
-mystr bar(mystr rhs){
-    printf("bar\n");
-    mystr ret(rhs.len + 4);
-    sprintf(ret.buf, "%s bar", rhs.buf);
-    return ret;
-}
-*/
-        
