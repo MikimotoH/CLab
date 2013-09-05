@@ -2,7 +2,8 @@ SRC=temp.cpp
 
 CXX=~/.vim/bin/cc_args.py clang++
 LD=clang++
-CXXFLAGS = -I. -std=c++11 -g  -stdlib=libc++ -v -lstdc++ -l:libcxxrt.a -v
+CXXFLAGS = -I. -std=c++11 -g  -stdlib=libc++ -v -lstdc++ -l:libcxxrt.a
+#CXXFLAGS+= -v 
 TARGET=test
 
 
