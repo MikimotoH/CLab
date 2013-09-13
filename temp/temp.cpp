@@ -9,7 +9,7 @@ using namespace std;
  */
 int mod(int x, int y){
     if(y<0)
-        return (exit(-1), printf("denominator can't be negative"), -1);
+        return (exit(-1), printf("denominator y=(%d) can't be negative",  y), -1);
     if(x>=0)
         return x%y;
 

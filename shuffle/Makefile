@@ -1,6 +1,6 @@
 #SRC=dump_hex_line.c
 #shuffle.c
-SRC=hashtable.c
+SRC=shuffle.c
 
 CC=gcc49
 

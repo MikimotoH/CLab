@@ -3,8 +3,12 @@
 #include <errno.h>
 #include <stdint.h>
 #include <time.h>
+#include <string.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <assert.h>
+#include <sys/types.h>
+#include <machine/cpufunc.h>
 
 
 void shuffle(uint32_t arr[], size_t size)
@@ -24,6 +28,20 @@ void shuffle(uint32_t arr[], size_t size)
 
 }
 
+void check_shuffle(uint32_t arr[], size_t size)
+{
+    int checks[size];
+    memset(checks, 0, sizeof(int)*size);
+
+    for(size_t i=0; i< size; ++i){
+        assert( arr[i] >=0 && arr[0] < size );
+        checks[ arr[i] ]  += 1;
+    }
+    for(size_t i=0; i<size; ++i){
+        assert(checks[i] == 1);
+    }
+    printf("check_shuffle OK\n");
+}
 
 int main(int argc, char** argv){
     //printf( "sum=%d\n", sumv(1,1,1));
@@ -39,16 +57,18 @@ int main(int argc, char** argv){
                 count);
         return EINVAL;
     }
-    srandom( time(NULL));
+    srandom( (unsigned long)rdtsc());//time(NULL));
     uint32_t arr[count];
     for(uint32_t i=0; i<count; ++i)
         arr[i] = i;
 
     shuffle(arr, count);
 
-    printf("arr[%d]={ ", count);
+    check_shuffle(arr, count);
+
+    printf("shuffles[%d]={ ", count);
     for(uint32_t i=0; i<count; ++i)
-        printf("%u, ", arr[i]);
+        printf("0x%02x, ", arr[i]);
     printf("}\n");
     return 0;
 }
