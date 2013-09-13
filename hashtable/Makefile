@@ -1,7 +1,7 @@
 SRC=hashtable.c
 
-CC=~/.vim/bin/cc_args.py clang33
-CFLAGS = -I. -std=gnu11 -g -v -fblocks
+CC=~/.vim/bin/cc_args.py clang
+CFLAGS = -I. -std=gnu11 -g 
 TARGET=test
 
 
