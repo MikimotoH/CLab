@@ -38,6 +38,7 @@ typedef unsigned __int128 u128;
 	typeof(y) _max2 = (y);			\
 	(void) (&_max1 == &_max2);		\
 	_max1 > _max2 ? _max1 : _max2; })
+
 typedef union{
     u8 b[8];
     uint64_t qword;
@@ -87,12 +88,12 @@ static u32 g_pr_generation = 0;
 typedef struct{
     itnexus_t  key;
     pr_reg_t*  value;
-    u32 is_valid;
+    u16 prev_node;
+    u16 next_node;
     union{
-        u32 cluster_name;
-        u32 hashvalue;
+        u16 cluster_name;
+        u16 hashvalue;
     };
-    u32 nextsamehash;
 }entry_t;
 
 #define key_equal(key1, key2)  (memcmp((key1).b, (key2).b, sizeof((key1).b)) == 0)
@@ -100,35 +101,11 @@ typedef struct{
 enum{
     g_hashtable_cap= 257,
 };
+
 static entry_t g_hashtable[g_hashtable_cap];
 static int g_hashtable_valid=0;
-/**
- * http://en.wikipedia.org/wiki/Modular_arithmetic
- */
-int mod(int x, int y){
-    assert(y>=2);
-    if(x>=0)
-        return x%y;
 
-    return y - (-x)%y;
-}
-u32 modu32(u32 x, u32 y){
-    assert(y>=2);
-    return x%y;
-}
-
-static inline u32 wrapinc(u32 x){
-    ++x;
-    if(x == g_hashtable_cap)
-        x=0;
-    return x;
-}
-static inline u32 wrapdec(u32 x){
-    --x;
-    if(x == -1)
-        x=g_hashtable_cap-1;
-    return x;
-}
+#define mod(x) ((x) % g_hashtable_cap)
 
 u32 hash_multiplicative(const u8* key, size_t len, u32 INITIAL_VALUE, u32 M)
 {
@@ -137,27 +114,10 @@ u32 hash_multiplicative(const u8* key, size_t len, u32 INITIAL_VALUE, u32 M)
       hash = M * hash + key[i];
    return hash ;
 }
-#define hash_func1(key) \
-    (hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) % g_hashtable_cap)
 
-u32 hash_func_naiive(itnexus_t key)
-{
-     return key.oword % g_hashtable_cap;
-}
-
-u32 hash_mul2(const itnexus_t key, u32 INITIAL_VALUE, u32 M)
-{
-    u32* dw = (u32*)&key;
-    size_t len = sizeof(key)/sizeof(u32);
-    u32 hash = INITIAL_VALUE;
-    for(size_t i = 0; i < len; ++i)
-        hash = M * hash + dw[i];
-    return hash ;
-}
-#define hash_func2(key) \
-    (hash_mul2(key, 5381, 33) % g_hashtable_cap)
-
-#define hash_func  hash_func1
+#define hash_func(key) \
+    (u16)(hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) \
+            % g_hashtable_cap)
 
 
 
@@ -168,17 +128,16 @@ entry_t* table_alloc(itnexus_t key)
         return NULL;
     }
 
-    u32 h = hash_func(key);
-    u32 horig = h;
+    u16 h = hash_func(key);
+    u16 horig = h;
     entry_t* e = NULL;
-    entry_t* prev_e = e;
-    u32 visited = 0;
-    u32 nextsamehash = 0;
+    u16 visited = 0;
+    u16 prev_node = 0;
 
     do
     {
         e = &g_hashtable[h];
-        if( !e->is_valid )
+        if( !e->value )
             goto found_empty_slot;
         else if( key_equal(e->key,  key) ){
             LOGDBG("repeat alloc same key=%s", itnexus_tostr(key));
@@ -186,69 +145,151 @@ entry_t* table_alloc(itnexus_t key)
         }
         
         // cluster occurs. cluster grows
+        // collision occurs, linked list appending
         if(e->cluster_name == horig){
-            prev_e = e;
-            nextsamehash = 0;
+            if(e->next_node){
+                // not-linked-list tail, hop
+                h = mod(h + e->next_node);
+                prev_node = e->next_node;
+            }
+            else{
+                // is linked-list tail, step next
+                e->next_node = 1;
+                h = mod(h + 1);
+                prev_node = 1;
+            }
         }
-        
-        // step next
-        h = wrapinc(h), ++visited, ++nextsamehash;
+        else{
+            if(prev_node){
+                entry_t* prev_e = &g_hashtable[ mod( h + prev_node ) ];
+                prev_e->next_node += 1; 
+            }
+            LOGDBG("e->cluster_name=%hu, horig=%hu", e->cluster_name, horig);
+            // step next
+            prev_node +=1;
+            h = mod(h + 1);
+        }
+        ++visited; 
     }
     while( visited < g_hashtable_valid );
 
-
-
 found_empty_slot:
-    if( !e->is_valid ){
+    if( !e->value ){
         e->key = key;
-        e->is_valid = 1;
         e->cluster_name = horig;
         ++g_hashtable_valid;
-        if(prev_e)
-            prev_e->nextsamehash = nextsamehash;
+        if(prev_node){
+            entry_t* prev_e = &g_hashtable[ mod( h + prev_node ) ];
+            prev_e->next_node = prev_node;
+            e->prev_node = prev_node;
+            e->next_node = 0;
+        }
         return e;
     }
     LOGERR("visited=%d alloc failed", visited);
     return NULL;
 }
 
-entry_t* table_find(itnexus_t key)
+entry_t* table_find_1(itnexus_t key, u16* p_prev_node)
 {
     if( g_hashtable_valid==0 ){
         LOGINF("hashtable is empty, find failed");
         return NULL;
     }
-    u32 h = hash_func(key);
+    u16 h = hash_func(key);
     entry_t* e = NULL;
-    u32 visited=0;
+    u16 visited=0;
 
     LOGTRC("h=%u",h);
+    u16 prev_node = 0;
 
     do{
         e = &g_hashtable[h];
-        if( e->is_valid &&  key_equal(e->key, key)){
-            LOGTRC("e->is_valid &&  key_equal(e->key, key) found_key");
+        if( e->value &&  key_equal(e->key, key)){
+            LOGTRC("e->value != NULL &&  key_equal(e->key, key) found_key");
             goto found_key;
         }
 
-        if( !e->is_valid ){
-            LOGTRC("if( !e->is_valid) not_found_key ");
+        if( !e->value ){
+            LOGTRC("if( !e->value) not_found_key ");
             goto not_found_key;
         }
 
         // step next
-        if(e->nextsamehash == 0 ){
-            LOGTRC("e->nextsamehash == 0  not_found_key");
+        if(e->next_node == 0 ){
+            LOGTRC("e->next_node == 0  not_found_key");
             goto not_found_key;
         }
-        h = ( h + e->nextsamehash) % g_hashtable_cap;
+        h = mod( h + e->next_node);
+        prev_node = e->next_node;
         LOGTRC("h=%u",h);
         ++visited;
         LOGTRC("visited=%u", visited);
     }while(visited < g_hashtable_valid);
 
 found_key:
-    if( e->is_valid && key_equal(e->key, key)){
+    if( e->value && key_equal(e->key, key)){
+        LOGDBG("key=%s visited=%u", itnexus_tostr(key), visited);
+        *p_prev_node = prev_node;
+        return e;
+    }
+not_found_key:
+    LOGINF("key=%s not found, visited=%u", itnexus_tostr(key), visited);
+    if(visited == g_hashtable_valid)
+        LOGERR("visited=%u, (g_hashtable_valid=%u) find failed", 
+                visited, g_hashtable_cap);
+
+    return NULL;
+}
+
+bool table_remove(itnexus_t key)
+{
+    u16 prev_node = 0;
+    entry_t* e = table_find_1(key, &prev_node);
+    if(!e){
+        LOGERR("table_find(key=%s) failed", itnexus_tostr(key));
+        return false;
+    }
+    if(!e->value){
+        LOGERR("e->value is NULL for key=%s", itnexus_tostr(key));
+        return false;
+    }
+
+    if( g_hashtable_valid==0 ){
+        LOGINF("hashtable is empty, find failed");
+        return NULL;
+    }
+    u16 h = hash_func(key);
+    entry_t* e = NULL;
+    u16 visited=0;
+
+    LOGTRC("h=%u",h);
+
+    do{
+        e = &g_hashtable[h];
+        if( e->value &&  key_equal(e->key, key)){
+            LOGTRC("e->value != NULL &&  key_equal(e->key, key) found_key");
+            goto found_key;
+        }
+
+        if( !e->value ){
+            LOGTRC("if( !e->value) not_found_key ");
+            goto not_found_key;
+        }
+
+        // step next
+        if(e->next_node == 0 ){
+            LOGTRC("e->next_node == 0  not_found_key");
+            goto not_found_key;
+        }
+        h = ( h + e->next_node) % g_hashtable_cap;
+        LOGTRC("h=%u",h);
+        ++visited;
+        LOGTRC("visited=%u", visited);
+    }while(visited < g_hashtable_valid);
+
+found_key:
+    if( e->value && key_equal(e->key, key)){
         LOGDBG("key=%s visited=%u", itnexus_tostr(key), visited);
         return e;
     }
@@ -263,10 +304,10 @@ not_found_key:
 
 void table_foreach(int (*func)(entry_t*, void*), void* args)
 {
-    int i=0;
+    u16 i=0;
     for(; i<g_hashtable_cap; ++i){
         entry_t* e = &g_hashtable[i];
-        if(e->is_valid){
+        if(e->value){
             int cont = (func)(e, args);
             if(!cont)
                 break;
@@ -279,22 +320,39 @@ double table_load_factor()
     return ((double)g_hashtable_valid)/((double)g_hashtable_cap);
 }
 
-void table_stats(){
+void table_stats()
+{
     LOGDBG("load_factor=%f", table_load_factor());
 
-    u32 maxnextsamehash=0;
-    for(u32 i=0; i< g_hashtable_cap; ++i){
+    u16 maxnextnode=0;
+    for(u16 i=0; i< g_hashtable_cap; ++i){
         entry_t* e = &g_hashtable[i];
-        if(!e->is_valid)
+        if(!e->value)
             continue;
-        maxnextsamehash = __max( maxnextsamehash, e->nextsamehash);
-        LOGINF("[%u]:{cluster_name=%u, nextsamehash=%u\n"
+        maxnextnode = __max( maxnextnode, e->next_node);
+        LOGINF("[%u]:{cluster_name=%u, next_node=%u\n"
                 "   key=%s, value=%s }",
-                i, e->cluster_name, e->nextsamehash,
+                i, e->cluster_name, e->next_node,
                 itnexus_tostr(e->key), pr_reg_tostr(e->value) );
     }
-    LOGINF("maxnextsamehash = %u", maxnextsamehash);
+    LOGINF("maxnextnode = %u", maxnextnode);
 }
+
+#define pod_dup(pod) \
+    ({ \
+        LETVAR(dup, (typeof(pod)*)malloc( sizeof(typeof(pod))));\
+        dup ? (memcpy(dup, &pod, sizeof(typeof(pod))), dup)\
+            : NULL;\
+     })
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wincompatible-pointer-types-discards-qualifiers"
+#define pod_ptr_dup(pod_ptr) \
+    ({ \
+        LETVAR(dup_ptr, (typeof(pod_ptr))malloc( sizeof(typeof( *pod_ptr))));\
+        dup_ptr ? (memcpy(dup_ptr, pod_ptr, sizeof(typeof(*pod_ptr))), dup_ptr)\
+            : NULL;\
+     })
+#pragma GCC diagnostic pop
 
 bool table_assign(itnexus_t key, pr_reg_t value){
     entry_t* e = table_alloc(key);
@@ -302,8 +360,7 @@ bool table_assign(itnexus_t key, pr_reg_t value){
         LOGERR("table_alloc failed");
         return false;
     }
-    e->value = malloc(sizeof(typeof(value)));
-    memcpy(e->value, &value, sizeof(typeof(value)));
+    e->value = pod_dup(value);
 
     return true;
 }
@@ -354,10 +411,10 @@ int main(int argc, char** argv){
     }
 
     table_stats();
-    //(void)table_find(make_itnexus(0x2001000e1e09f20aULL, 0x0100000e1e116080));
-    //(void)table_find(make_itnexus(0x0001000e1e09f20aULL, 0x2100000e1e116080));
-    //(void)table_find(make_itnexus(0x2001000e1e09f20aULL, 0x2100000e1e116080));
-    //(void)table_find(make_itnexus(0x2001000e1e09f203ULL, 0x2001000e1e09f268));
+    (void)table_find(make_itnexus(0x2001000e1e09f20aULL, 0x0100000e1e116080));
+    (void)table_find(make_itnexus(0x0001000e1e09f20aULL, 0x2100000e1e116080));
+    (void)table_find(make_itnexus(0x2001000e1e09f20aULL, 0x2100000e1e116080));
+    (void)table_find(make_itnexus(0x2001000e1e09f203ULL, 0x2001000e1e09f268));
     (void)table_find(make_itnexus(0x2001000e1e09f205, 0x2001000e1e09f282));
 
     itnexus_t arg_key = make_itnexus(0x2001000e1e09f268, 0x2001000e1e09f200);

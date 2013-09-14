@@ -1,4 +1,44 @@
 
+/**
+ * http://en.wikipedia.org/wiki/Modular_arithmetic
+ */
+int mod(int x, int y){
+    assert(y>=2);
+    if(x>=0)
+        return x%y;
+
+    return y - (-x)%y;
+}
+u32 modu32(u32 x, u32 y){
+    assert(y>=2);
+    return x%y;
+}
+static inline u32 wrapdec(u32 x){
+    --x;
+    if(x == -1)
+        x=g_hashtable_cap-1;
+    return x;
+}
+
+u32 hash_func_naiive(itnexus_t key)
+{
+     return key.oword % g_hashtable_cap;
+}
+
+u32 hash_mul2(const itnexus_t key, u32 INITIAL_VALUE, u32 M)
+{
+    u32* dw = (u32*)&key;
+    size_t len = sizeof(key)/sizeof(u32);
+    u32 hash = INITIAL_VALUE;
+    for(size_t i = 0; i < len; ++i)
+        hash = M * hash + dw[i];
+    return hash ;
+}
+#define hash_func2(key) \
+    (hash_mul2(key, 5381, 33) % g_hashtable_cap)
+
+#define hash_func  hash_func1
+
 int main(){
     table_assign(make_itnexus(0xba00, "tare");
     table_assign(1, "geolu");
