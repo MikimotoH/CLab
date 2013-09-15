@@ -384,9 +384,9 @@ void slist_add(pr_reg_t* pr)
 u16 slist_length()
 {
     u16 len = 0;
-    pr_reg_t  *np = NULL;
+    pr_reg_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
-    SLIST_FOREACH(np, &g_list, entries){
+    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
         ++len;
     }
     return len;
@@ -394,9 +394,9 @@ u16 slist_length()
 pr_reg_t* slist_get_at_index(u16 index)
 {
     u16 len = 0;
-    pr_reg_t  *np = NULL;
+    pr_reg_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
-    SLIST_FOREACH(np, &g_list, entries){
+    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
         if(len == index){
             return np;
         }
@@ -408,9 +408,9 @@ pr_reg_t* slist_get_at_index(u16 index)
 
 pr_reg_t* slist_find(itnexus_t nexus)
 {
-    pr_reg_t  *np = NULL;
+    pr_reg_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
-    SLIST_FOREACH(np, &g_list, entries){
+    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
         if( key_equal(np->nexus, nexus))
             return np;
     }
@@ -418,9 +418,9 @@ pr_reg_t* slist_find(itnexus_t nexus)
 }
 
 pr_reg_t* slist_delete(itnexus_t nexus){
-    pr_reg_t  *np = NULL;
+    pr_reg_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
-    SLIST_FOREACH(np, &g_list, entries){
+    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
         if( key_equal(np->nexus, nexus))
         {
             SLIST_REMOVE(&g_list, np, pr_reg, entries);
@@ -430,21 +430,6 @@ pr_reg_t* slist_delete(itnexus_t nexus){
     return NULL;
 }
 
-void test_linked_list()
-{
-
-    struct slisthead *headp; // Singly-linked List g_list
-    struct pr_reg  *n1, *n2, *n3, *np;
-
-
-    SLIST_REMOVE(&g_list, n2, pr_reg, entries);// Deletion.
-    free(n2);
-
-    n3 = SLIST_FIRST(&g_list);
-    SLIST_REMOVE_HEAD(&g_list, entries); // Deletion from the g_list
-    free(n3);
-
-}
 
 static inline u8 u8rand()
 {
@@ -503,6 +488,7 @@ int main(int argc, char** argv){
     srandom(time(NULL));
 
     SLIST_INIT(&g_list);// Initialize the list
+    SLIST_INIT(&g_listdeleted);// Initialize the list
 
     for(size_t t=0; t< ARRAY_SIZE(tports); ++t){
         for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
@@ -518,32 +504,46 @@ int main(int argc, char** argv){
     // Positive Test: find those already added
     SLIST_FOREACH(np, &g_list, entries){
         entry_t* e = table_find( np->nexus );
-        assert( e );
+        assert( e && !is2(e->value, NULL, DEL) );
+        LOGINF("Positive test: nexus=%s, pr=%s", itnexus_tostr(np->nexus).str, pr_reg_tostr(e->value).str);
         assert( memcmp(e->value, np, sizeof(pr_reg_t))==0 );
     }
+
     // Negative test
-    for(size_t i=0; i< 100ul; ++i) {
+    for(u16 i=0; i< 100; ++i) {
         itnexus_t nexus = make_itnexus( u64rand(), u64rand() );
         if( slist_find( nexus ) == NULL ){
+            LOGINF("Negative test [%u], random nexus=%s", 
+                    i, itnexus_tostr(nexus).str);
             entry_t* e = table_find( nexus );
             assert( e == NULL );
         }
     }
     
-    while (!SLIST_EMPTY(&g_list)) {
+    while (1) {
         // List Deletion.
-        pr_reg_t* pr = slist_get_at_index( u16randlessthan( slist_length() ) );
+        u16 len = slist_length();
+        if(len==0)
+            break;
+        u16 idx = u16randlessthan( len );
+        LOGINF("slist_length()=%u, random index=%u", len, idx);
+        pr_reg_t* pr = slist_get_at_index(idx);
+        assert(pr);
 
         SLIST_INSERT_HEAD(&g_listdeleted, pr, entries);
-        slist_delete(pr->nexus);
+        SLIST_REMOVE(&g_list, pr, pr_reg, entries);
         table_delete(pr->nexus);
 
         assert( table_find( pr->nexus ) == NULL );
 
         {
-            pr_reg_t  *np = NULL;
-            SLIST_FOREACH(np, &g_listdeleted, entries){
+            pr_reg_t  *np = NULL, *tempnp = NULL;
+            u16 i = 0;
+            SLIST_FOREACH_SAFE(np, &g_listdeleted, entries, tempnp){
+                LOGINF("Negative Test: i=%u, nexus=%s", 
+                        i, itnexus_tostr(np->nexus).str);
                 assert( table_find( np->nexus ) == NULL );
+                ++i;
             }
         }
     }
