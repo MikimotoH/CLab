@@ -155,7 +155,8 @@ static inline u16 naiive_hash_func(itnexus_t key){
 #define hash_func1(key) \
     (u16)(hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) \
             % g_hashtable_cap)
-#define hash_func(key) (u16)( naiive_hash_func(key) )
+//#define hash_func(key) (u16)( naiive_hash_func(key) )
+#define hash_func hash_func1
 
 /*
  * Open Addressing - Linear Probing
@@ -192,10 +193,10 @@ entry_t* table_alloc(itnexus_t key)
 found_empty_slot:
     e->key = key;
     ++g_hashtable_valid;
-    LOGDBG("Found empty slot, visited=%u", visited);
+    LOGDBG("Found empty slot, visited=%u, g_hashtable_valid=%u", visited, g_hashtable_valid);
     return e;
 not_found_empty_slot:
-    LOGERR("not found empty slot, visited=%u", visited);
+    LOGERR("not found empty slot, visited=%u, g_hashtable_valid=%u", visited, g_hashtable_valid);
     return NULL;
 }
 
@@ -481,7 +482,7 @@ int main(int argc, char** argv){
         0x2001000e1e09f282ULL, 
         0x2001000e1e09f283ULL, 
     };
-    u64 iports[8];
+    u64 iports[32];
     for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
         iports[i] = 0x2001000e1e09f200ULL + i;
     }
@@ -529,9 +530,11 @@ int main(int argc, char** argv){
         LOGINF("slist_length()=%u, random index=%u", len, idx);
         pr_reg_t* pr = slist_get_at_index(idx);
         assert(pr);
-
-        SLIST_INSERT_HEAD(&g_listdeleted, pr, entries);
         SLIST_REMOVE(&g_list, pr, pr_reg, entries);
+
+        pr->entries.sle_next = NULL;
+        SLIST_INSERT_HEAD(&g_listdeleted, pr, entries);
+        
         table_delete(pr->nexus);
 
         assert( table_find( pr->nexus ) == NULL );
