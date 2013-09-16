@@ -1,2 +1,3 @@
 -I.
 -std=gnu11
+-std=gnu99

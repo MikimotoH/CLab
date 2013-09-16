@@ -4,3 +4,4 @@ clang_log.txt
 *.o
 .*.swp
 *.pyc
+*.core

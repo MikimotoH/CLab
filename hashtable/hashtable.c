@@ -97,14 +97,16 @@ pr_reg_t* create_pr_reg(itnexus_t arg_nexus, u64 arg_key){
 
 typedef struct{
     char str[128];
-}pr_reg_str_t;
-pr_reg_str_t pr_reg_tostr(const pr_reg_t* pr) { 
-    pr_reg_str_t ret;
+}pr_reg_tostr_t;
+
+pr_reg_tostr_t pr_reg_tostr(const pr_reg_t* pr) 
+{
+    pr_reg_tostr_t ret;
     snprintf(ret.str, ARRAY_SIZE(ret.str), "{key=0x%016lx, gen=%u}", pr->key, pr->generation);
     return ret;
 }
 
-#define DEL (void*)(-1)
+#define DELETED (void*)(-1)
 #define is2(x,a,b) ((x)==(a) || (x) ==(b))
 
 typedef struct{
@@ -114,7 +116,8 @@ typedef struct{
 
 #define key_equal(key1, key2)  (memcmp((key1).b, (key2).b, sizeof((key1).b)) == 0)
 
-enum{
+enum
+{
     g_hashtable_cap= 257,
 };
 
@@ -122,23 +125,54 @@ static entry_t g_hashtable[g_hashtable_cap];
 static u16 g_hashtable_valid=0;
 static u16 g_hashtable_deleted=0;
 
-static inline int mod_int(int x, int y){
+static inline int32_t int32mod(int32_t x, int32_t y)
+{
     assert(y>=2);
     if(x>=0)
         return x%y;
 
-    return (y - (-x)%y) % y ;
+    int32_t r =  (y - (-x)%y) % y ;
+    assert(r>=0 && r<y);
+    return r;
 }
+
 static inline u16 mod(int x)
 {
-    int ret = mod_int(x, g_hashtable_cap);
+    int ret = int32mod(x, g_hashtable_cap);
     assert(ret < g_hashtable_cap && ret >=0);
     return (u16)ret;
 }
+
 static inline u16 mod_inc(u16 h)
 {
    ++h;
    return h != g_hashtable_cap ? h : 0;
+}
+
+// @return (a - b) mod n
+// if mod_number==257 ;then
+//   mod_dif(0, 256) == 1
+//   mod_dif(256, 0) == 256
+//   mod_dif(256, 255) == 1
+//   mod_dif(255, 256) == 256
+//   mod_dif(1, 0) == 1
+//   mod_dif(0, 1) == 256
+//   mod_dif(-1, 255) == 1
+//   mod_dif(255, -1) == 256
+//   mod_dif(257, 256) == 1
+//   mod_dif(256, 257) == 256
+//   mod_dif(0, -1) == 1
+//   mod_dif(-1, 0) == 256
+static inline int32_t int32mod_dif(int32_t a, int32_t b)
+{
+    int32_t r = int32mod(a-b, g_hashtable_cap);
+    assert(r>=0 && r<g_hashtable_cap);
+    return r;
+}
+
+static inline u16 mod_dif(u16 a, u16 b)
+{
+    return (u16)int32mod_dif((int32_t)a, (int32_t)b);
 }
 
 static inline u32 hash_multiplicative(const u8* key, size_t len, u32 INITIAL_VALUE, u32 M)
@@ -155,8 +189,8 @@ static inline u16 naiive_hash_func(itnexus_t key){
 #define hash_func1(key) \
     (u16)(hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) \
             % g_hashtable_cap)
-//#define hash_func(key) (u16)( naiive_hash_func(key) )
-#define hash_func hash_func1
+#define hash_func(key) (u16)( naiive_hash_func(key) )
+//#define hash_func hash_func1
 
 /*
  * Open Addressing - Linear Probing
@@ -179,8 +213,8 @@ entry_t* table_alloc(itnexus_t key)
     do
     {
         e = &g_hashtable[h];
-        if( is2(e->value,NULL,DEL))
-            goto found_empty_slot;
+        if( is2(e->value,NULL,DELETED))
+            goto found_empty_bucket;
         else if( key_equal(e->key,  key) ){
             LOGDBG("repeat alloc same key=%s", itnexus_tostr(key).str);
             return e;
@@ -188,15 +222,15 @@ entry_t* table_alloc(itnexus_t key)
         h = mod(h+1);
     } while( ++visited < g_hashtable_cap &&  h != orig_h );
 
-    goto not_found_empty_slot;
+    goto not_found_empty_bucket;
 
-found_empty_slot:
+found_empty_bucket:
     e->key = key;
     ++g_hashtable_valid;
-    LOGDBG("Found empty slot, visited=%u, g_hashtable_valid=%u", visited, g_hashtable_valid);
+    LOGDBG("Found empty bucket at [%u], visited=%u, g_hashtable_valid=%u", h, visited, g_hashtable_valid);
     return e;
-not_found_empty_slot:
-    LOGERR("not found empty slot, visited=%u, g_hashtable_valid=%u", visited, g_hashtable_valid);
+not_found_empty_bucket:
+    LOGERR("Not found empty bucket, visited=%u, g_hashtable_valid=%u", visited, g_hashtable_valid);
     return NULL;
 }
 
@@ -215,8 +249,8 @@ entry_t* table_find(itnexus_t key)
 
     do{
         e = &g_hashtable[h];
-        if( !is2(e->value,NULL,DEL) &&  key_equal(e->key, key)){
-            LOGTRC("e->value != (NULL or DEL) &&  (e->key == key) found_key");
+        if( !is2(e->value,NULL,DELETED) &&  key_equal(e->key, key)){
+            LOGTRC("e->value != (NULL or DELETED) &&  (e->key == key) found_key");
             goto found_key;
         }
 
@@ -224,7 +258,7 @@ entry_t* table_find(itnexus_t key)
             LOGTRC("if( !e->value) not_found_key ");
             goto not_found_key;
         }
-        assert( e->value == DEL || e->value != NULL );
+        assert( e->value == DELETED || e->value != NULL );
 
         // step next
         h = mod( h + 1);
@@ -237,56 +271,72 @@ found_key:
             itnexus_tostr(key).str, h, visited, g_hashtable_valid );
     return e;
 not_found_key:
-    LOGERR("key=%s is not found, visited=%u, g_hashtable_valid=%u", 
+    LOGINF("key=%s is not found, visited=%u, g_hashtable_valid=%u", 
             itnexus_tostr(key).str, visited, g_hashtable_valid );
     return NULL;
 }
 
-
+#define BZERO(pod) bzero(&pod, sizeof(pod))
 
 pr_reg_t* table_delete(itnexus_t key)
 {
     entry_t* e = table_find(key);
     if(!e){
-        LOGERR("key=%s does not exist.", itnexus_tostr(key).str);
+        LOGINF("key=%s does not exist.", itnexus_tostr(key).str);
         return NULL;
     }
-    else if( is2(e->value, NULL,DEL) ){
+    else if( is2(e->value, NULL,DELETED) ){
         LOGERR("e->value is %p for key=%s", itnexus_tostr(key).str, pr_reg_tostr(e->value).str );
         return NULL;
     }
     pr_reg_t* ret = e->value;
-    e->value = DEL;
+    u16 h =  (u16)(size_t)(e - &g_hashtable[0]);
+    LOGTRC("h = %u, ret=%s", h, pr_reg_tostr(ret).str );
+
+    entry_t* next_e = &g_hashtable[ mod(h+1) ];
+    if(next_e->value == NULL)
+        e->value = NULL;
+    else 
+        e->value = DELETED;
+    BZERO(e->key);
+
     g_hashtable_deleted+=1;
     g_hashtable_valid-=1;
-    u16 h =  (u16)(size_t)(e - &g_hashtable[0]);
-    LOGINF("h = %u, ret=%s", h, pr_reg_tostr(ret).str );
+
     return ret;
-    /*
-    u16 orig_h = h;
-    h = mod(h + 1);
-    u16 visited = 0;
-    do{
-        e = &g_hashtable[ h ];
-        ++visited;
-        if( e->value == NULL){
-            u16 dist = mod_dif(home, h);
-            if(dist>=1 && dist <= visited ) {
-                entry_t* orig_e = &g_hashtable[orig_h];
-                swap(orig_e, e);
-            }
-            break;
-        }
-        if( e->value != DEL){
-            u16 home = hash_func(e->key);
-            u16 dist = mod_dif(home, h);
-            if(dist>=1 && dist <= visited ) {
-            }
-        }
-    }while(h!=orig_h);
-    return true;
-    */
 }
+
+void table_clean_deleted()
+{
+    u16 h = mod(-1);
+    for(; h!=0; h = mod(h-1)){
+        entry_t* e = &g_hashtable[h];
+        entry_t* prev_e = &g_hashtable[mod(h-1)];
+        if( e->value == NULL && prev_e->value == DELETED){
+            prev_e->value = NULL;
+        }
+    }
+}
+
+#define SWAP(x,y) ( {__typeof__(x) z = x ; x = y; y = z;}  )
+
+void table_make_key_return_home(u16 h)
+{
+    assert(h<g_hashtable_cap);
+    entry_t* e = &g_hashtable[ h ];
+    assert(!is2(e->value, NULL, DELETED));
+
+    u16  home_h = hash_func(e->key);
+    while( h != home_h)
+    {
+        entry_t* prev_e = &g_hashtable[ mod(h-1)];
+        if(is2(prev_e->value, NULL, DELETED)){
+            SWAP(prev_e,e);
+        }
+        h = mod(h-1);
+    }
+}
+
 /*
 int visitor(entry_t* e, void* args)
 {
@@ -304,7 +354,7 @@ void table_foreach(int (*func)(entry_t*, void*), void* args)
     u16 i=0;
     for(; i<g_hashtable_cap; ++i){
         entry_t* e = &g_hashtable[i];
-        if(!is2(e->value,NULL,DEL)){
+        if(!is2(e->value,NULL,DELETED)){
             int cont = (func)(e, args);
             if(!cont)
                 break;
@@ -325,15 +375,14 @@ void table_stats()
     for(u16 i=0; i< g_hashtable_cap; ++i){
         entry_t* e = &g_hashtable[i];
         if(e->value == NULL){
-            LOGINF("[%u]:{NULL}", i);
         }
-        else if(e->value==DEL){
-            LOGINF("[%u]:{key=%s, DEL}", i, itnexus_tostr(e->key).str);
+        else if(e->value==DELETED){
+            LOGINF("[%u]:{key=%s, DELETED}", i, itnexus_tostr(e->key).str);
         }
-        if(is2(e->value,NULL,DEL))
-            continue;
-        LOGINF("[%u]:{key=%s, value=%s}",
-                i, itnexus_tostr(e->key).str, pr_reg_tostr(e->value).str );
+        else{
+            LOGINF("[%u]:{key=%s, value=%s}",
+                    i, itnexus_tostr(e->key).str, pr_reg_tostr(e->value).str );
+        }
     }
 }
 
@@ -359,7 +408,7 @@ bool table_assign(itnexus_t key, pr_reg_t* value){
         LOGERR("table_alloc failed");
         return false;
     }
-    assert( is2(e->value,DEL,NULL) );
+    assert( is2(e->value,DELETED,NULL) );
     e->value = value;
 
     return true;
@@ -371,7 +420,7 @@ pr_reg_t* table_get(itnexus_t key){
         LOGERR("table_find %s failed", itnexus_tostr(key).str);
         return NULL;
     }
-    assert( e->value != DEL );
+    assert( e->value != DELETED );
     return e->value;
 }
 
@@ -470,8 +519,26 @@ static inline u16 u16randlessthan(u16 x)
     return u16rand() % x;
 }
 
+void unittest_int32mod_dif()
+{
+   assert(int32mod_dif(0, 256) == 1);
+   assert(int32mod_dif(256, 0) == 256);
+   assert(int32mod_dif(256, 255) == 1);
+   assert(int32mod_dif(255, 256) == 256);
+   assert(int32mod_dif(1, 0) == 1);
+   assert(int32mod_dif(0, 1) == 256);
+   assert(int32mod_dif(-1, 255) == 1);
+   assert(int32mod_dif(255, -1) == 256);
+   assert(int32mod_dif(257, 256) == 1);
+   assert(int32mod_dif(256, 257) == 256);
+   assert(int32mod_dif(0, -1) == 1);
+   assert(int32mod_dif(-1, 0) == 256);
+}
+
 
 int main(int argc, char** argv){
+    unittest_int32mod_dif();
+
     u64 tports[8]= {
         0x2001000e1e09f268ULL, 
         0x2001000e1e09f269ULL, 
@@ -482,7 +549,7 @@ int main(int argc, char** argv){
         0x2001000e1e09f282ULL, 
         0x2001000e1e09f283ULL, 
     };
-    u64 iports[32];
+    u64 iports[2];
     for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
         iports[i] = 0x2001000e1e09f200ULL + i;
     }
@@ -505,13 +572,15 @@ int main(int argc, char** argv){
     // Positive Test: find those already added
     SLIST_FOREACH(np, &g_list, entries){
         entry_t* e = table_find( np->nexus );
-        assert( e && !is2(e->value, NULL, DEL) );
+        assert( e && !is2(e->value, NULL, DELETED) );
         LOGINF("Positive test: nexus=%s, pr=%s", itnexus_tostr(np->nexus).str, pr_reg_tostr(e->value).str);
         assert( memcmp(e->value, np, sizeof(pr_reg_t))==0 );
     }
+    LOGINF("slist_length=%u, g_hashtable_valid=%u", slist_length(), g_hashtable_valid);
+    assert( slist_length() == g_hashtable_valid );
 
-    // Negative test
-    for(u16 i=0; i< 100; ++i) {
+    // Random Negative test
+    for(u16 i=0; i< 5; ++i) {
         itnexus_t nexus = make_itnexus( u64rand(), u64rand() );
         if( slist_find( nexus ) == NULL ){
             LOGINF("Negative test [%u], random nexus=%s", 
@@ -551,12 +620,14 @@ int main(int argc, char** argv){
         }
     }
     table_stats();
+    assert( g_hashtable_valid == 0);
 
     while (!SLIST_EMPTY(&g_listdeleted)) {// List Deletion.
         pr_reg_t* n1 = SLIST_FIRST(&g_listdeleted);
         SLIST_REMOVE_HEAD(&g_listdeleted, entries);
         free(n1);
     }
+    LOGINF("return OK");
 
     /*
     assert( table_find(make_itnexus(0x2001000e1e09f20aULL, 0x0100000e1e116080)) == NULL );
@@ -571,4 +642,5 @@ int main(int argc, char** argv){
 
     return 0;
 }
+
 
