@@ -10,6 +10,9 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <sys/queue.h>
+#include <machine/_types.h>
+#include <sys/types.h>
+#include <machine/cpufunc.h>
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -17,28 +20,36 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 typedef unsigned __int128 u128;
 #define LOGERR(fmtstr, ...)  \
-    do{ printf("<ERROR>[%s]" fmtstr "\n", __func__, ## __VA_ARGS__);\
-    } while(0)
+    printf("<ERROR>[%s]" fmtstr "\n", __func__, ## __VA_ARGS__)
 
 #define LOGINF(fmtstr, ...)  \
-    do{ printf("<INFO>[%s]" fmtstr "\n", __func__, ## __VA_ARGS__);\
-    } while(0)
+    printf("<INFO>[%s]" fmtstr "\n", __func__, ## __VA_ARGS__)
+
 #define LOGDBG(fmtstr, ...)  \
-    do{ printf("<DEBUG>[%s][%u]" fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__);\
-    } while(0)
+    printf("<DEBUG>[%s][%u]" fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__)
+
 #define LOGTRC(fmtstr, ...)  \
-    do{ printf("<TRACE>[%s][%u]" fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__);\
-    } while(0)
+    printf("<TRACE>[%s][%u]" fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__)
+
+#define LOGLOG(fmtstr, ...)  \
+    printf(fmtstr "\n", ## __VA_ARGS__)
 
 #define ARRAY_SIZE(x)   (sizeof(x) / sizeof((x)[0]))
 #define typeof(x)                       __typeof(x)
 #define LETVAR(newvar,rhs)              typeof(rhs) newvar = (rhs) 
+#define SWAP(x,y) ( {__typeof__(x) z = x ; x = y; y = z;}  )
 
 #define __max(x, y) ({				\
 	typeof(x) _max1 = (x);			\
 	typeof(y) _max2 = (y);			\
 	(void) (&_max1 == &_max2);		\
 	_max1 > _max2 ? _max1 : _max2; })
+
+#define _ASSERT(expr) \
+    do{if(!(expr)){\
+        printf("[%s:%u]assert(%s) failed\n", __FILE__, __LINE__, # expr );\
+        breakpoint();\
+    }}while(0)
 
 typedef union{
     u8 b[8];
@@ -189,8 +200,8 @@ static inline u16 naiive_hash_func(itnexus_t key){
 #define hash_func1(key) \
     (u16)(hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) \
             % g_hashtable_cap)
-#define hash_func(key) (u16)( naiive_hash_func(key) )
-//#define hash_func hash_func1
+//#define hash_func(key) (u16)( naiive_hash_func(key) )
+#define hash_func hash_func1
 
 /*
  * Open Addressing - Linear Probing
@@ -227,10 +238,17 @@ entry_t* table_alloc(itnexus_t key)
 found_empty_bucket:
     e->key = key;
     ++g_hashtable_valid;
-    LOGDBG("Found empty bucket at [%u], visited=%u, g_hashtable_valid=%u", h, visited, g_hashtable_valid);
+    LOGDBG("Found empty bucket for key=%s, orig_h=%u, h=%u, visited=%u,\n"
+            "g_hashtable_valid=%u",  
+            itnexus_tostr(key).str, orig_h, h, 
+            visited, g_hashtable_valid);
     return e;
+
 not_found_empty_bucket:
-    LOGERR("Not found empty bucket, visited=%u, g_hashtable_valid=%u", visited, g_hashtable_valid);
+    LOGERR("Not found empty bucket for key=%s, visited=%u,\n"
+            "g_hashtable_valid=%u", 
+            itnexus_tostr(key).str, visited, 
+            g_hashtable_valid);
     return NULL;
 }
 
@@ -262,7 +280,7 @@ entry_t* table_find(itnexus_t key)
 
         // step next
         h = mod( h + 1);
-    }while( ++visited < g_hashtable_valid && h != orig_h );
+    }while( h != orig_h );
 
     goto not_found_key;
 
@@ -287,6 +305,7 @@ pr_reg_t* table_delete(itnexus_t key)
     }
     else if( is2(e->value, NULL,DELETED) ){
         LOGERR("e->value is %p for key=%s", itnexus_tostr(key).str, pr_reg_tostr(e->value).str );
+        assert(0);
         return NULL;
     }
     pr_reg_t* ret = e->value;
@@ -298,7 +317,6 @@ pr_reg_t* table_delete(itnexus_t key)
         e->value = NULL;
     else 
         e->value = DELETED;
-    BZERO(e->key);
 
     g_hashtable_deleted+=1;
     g_hashtable_valid-=1;
@@ -318,7 +336,6 @@ void table_clean_deleted()
     }
 }
 
-#define SWAP(x,y) ( {__typeof__(x) z = x ; x = y; y = z;}  )
 
 void table_make_key_return_home(u16 h)
 {
@@ -370,20 +387,25 @@ double table_load_factor()
 
 void table_stats()
 {
-    LOGDBG("load_factor=%f", table_load_factor());
+    LOGLOG("g_hashtable_cap=%u, g_hashtable_valid=%u, g_hashtable_deleted=%u, \n"
+            "load_factor=%f", 
+            g_hashtable_cap, g_hashtable_valid, g_hashtable_deleted, 
+            table_load_factor());
 
-    for(u16 i=0; i< g_hashtable_cap; ++i){
-        entry_t* e = &g_hashtable[i];
-        if(e->value == NULL){
-        }
-        else if(e->value==DELETED){
-            LOGINF("[%u]:{key=%s, DELETED}", i, itnexus_tostr(e->key).str);
-        }
-        else{
-            LOGINF("[%u]:{key=%s, value=%s}",
-                    i, itnexus_tostr(e->key).str, pr_reg_tostr(e->value).str );
-        }
+    u16 worst_case = 0;
+
+    for(u16 h=0; h< g_hashtable_cap; ++h){
+        entry_t* e = &g_hashtable[h];
+        if(e->value == NULL)
+            continue;
+        u16 orig_h = hash_func(e->key);
+        u16 diff_h = mod_dif(h, orig_h);
+        LOGLOG("[%u]:{orig_h=%u, diff_h=%u, key=%s, value=%s}",
+                h, orig_h, diff_h, itnexus_tostr(e->key).str, 
+                (e->value==DELETED)?"DELETED":pr_reg_tostr(e->value).str );
+        worst_case = __max(worst_case, diff_h);
     }
+    LOGLOG("worst_case=%u", worst_case);
 }
 
 #define pod_dup(pod) \
@@ -433,8 +455,10 @@ void slist_add(pr_reg_t* pr)
 
 u16 slist_length()
 {
-    u16 len = 0;
+    if(SLIST_EMPTY(&g_list))
+        return 0;
     pr_reg_t  *np = NULL, *tp=NULL;
+    u16 len = 0;
     // Forward traversal. 
     SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
         ++len;
@@ -516,6 +540,8 @@ static inline u128 u128rand()
 }
 static inline u16 u16randlessthan(u16 x)
 {
+    if(x==1)
+        return 0;
     return u16rand() % x;
 }
 
@@ -537,19 +563,21 @@ void unittest_int32mod_dif()
 
 
 int main(int argc, char** argv){
-    unittest_int32mod_dif();
+    //unittest_int32mod_dif();
 
-    u64 tports[8]= {
-        0x2001000e1e09f268ULL, 
-        0x2001000e1e09f269ULL, 
-        0x2001000e1e09f278ULL, 
-        0x2001000e1e09f279ULL, 
-        0x2100000e1e116080ULL, 
-        0x2100000e1e116081ULL, 
-        0x2001000e1e09f282ULL, 
-        0x2001000e1e09f283ULL, 
-    };
-    u64 iports[2];
+    u64 tports[8];
+    for(size_t i=0; i< ARRAY_SIZE(tports); ++i){
+        tports[i] = 0x2100000e1e116080ULL + i;
+    }
+    //{ 0x2001000e1e09f268ULL, 
+    //    0x2001000e1e09f269ULL, 
+    //    0x2001000e1e09f278ULL, 
+    //    0x2001000e1e09f279ULL, 
+    //    0x2100000e1e116080ULL, 
+    //    0x2100000e1e116081ULL, 
+    //    0x2001000e1e09f282ULL, 
+    //    0x2001000e1e09f283ULL };
+    u64 iports[28];
     for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
         iports[i] = 0x2001000e1e09f200ULL + i;
     }
@@ -558,6 +586,8 @@ int main(int argc, char** argv){
     SLIST_INIT(&g_list);// Initialize the list
     SLIST_INIT(&g_listdeleted);// Initialize the list
 
+    assert(slist_length()==0);
+    u16 expected_total_count = ARRAY_SIZE(tports) * ARRAY_SIZE(iports);
     for(size_t t=0; t< ARRAY_SIZE(tports); ++t){
         for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
             u64 rk = u64rand();
@@ -567,8 +597,13 @@ int main(int argc, char** argv){
             slist_add( pr );
         }
     }
+    LOGINF("slist_length=%u, g_hashtable_valid=%u", slist_length(), g_hashtable_valid);
+    assert(slist_length() == expected_total_count);
+    assert(g_hashtable_valid == expected_total_count);
+    assert( slist_length() == g_hashtable_valid );
 
     pr_reg_t  *np = NULL;
+    /*
     // Positive Test: find those already added
     SLIST_FOREACH(np, &g_list, entries){
         entry_t* e = table_find( np->nexus );
@@ -576,8 +611,6 @@ int main(int argc, char** argv){
         LOGINF("Positive test: nexus=%s, pr=%s", itnexus_tostr(np->nexus).str, pr_reg_tostr(e->value).str);
         assert( memcmp(e->value, np, sizeof(pr_reg_t))==0 );
     }
-    LOGINF("slist_length=%u, g_hashtable_valid=%u", slist_length(), g_hashtable_valid);
-    assert( slist_length() == g_hashtable_valid );
 
     // Random Negative test
     for(u16 i=0; i< 5; ++i) {
@@ -589,26 +622,44 @@ int main(int argc, char** argv){
             assert( e == NULL );
         }
     }
+    */
     
-    while (1) {
+#define TABLE_STATS(label, ...) \
+        printf( label "\n"\
+                "-------------------------------------------------\n", ## __VA_ARGS__ ); \
+        table_stats();\
+        printf( "-------------------------------------------------\n");
+    TABLE_STATS("After fully loaded.");
+
+    u16 deleted = 0;
+    while ( !SLIST_EMPTY(&g_list)) 
+    {
         // List Deletion.
         u16 len = slist_length();
         if(len==0)
             break;
-        u16 idx = u16randlessthan( len );
+        u16 idx = len/2; // u16randlessthan( len );
         LOGINF("slist_length()=%u, random index=%u", len, idx);
         pr_reg_t* pr = slist_get_at_index(idx);
         assert(pr);
+        itnexus_t key = pr->nexus;
         SLIST_REMOVE(&g_list, pr, pr_reg, entries);
+        ++deleted;
 
         pr->entries.sle_next = NULL;
         SLIST_INSERT_HEAD(&g_listdeleted, pr, entries);
-        
-        table_delete(pr->nexus);
 
-        assert( table_find( pr->nexus ) == NULL );
+        if(table_delete(key) == NULL){
+            LOGERR("table_delete(%s) failed.", itnexus_tostr(key).str);
+            TABLE_STATS("After deleted key=%s", itnexus_tostr(key).str );
+            breakpoint();
+        }
 
-        {
+        assert( table_find(key) == NULL );
+
+        TABLE_STATS("After deleted key=%s", itnexus_tostr(key).str );
+
+        /*{
             pr_reg_t  *np = NULL, *tempnp = NULL;
             u16 i = 0;
             SLIST_FOREACH_SAFE(np, &g_listdeleted, entries, tempnp){
@@ -617,10 +668,15 @@ int main(int argc, char** argv){
                 assert( table_find( np->nexus ) == NULL );
                 ++i;
             }
-        }
+        }*/
     }
-    table_stats();
+    LOGINF("deleted=%u, expected_total_count=%u", deleted, expected_total_count);
+    assert( deleted == expected_total_count);
+
+    LOGINF("g_hashtable_valid=%u, g_hashtable_deleted=%u", 
+            g_hashtable_valid, g_hashtable_deleted);
     assert( g_hashtable_valid == 0);
+    TABLE_STATS("After fully deleted");
 
     while (!SLIST_EMPTY(&g_listdeleted)) {// List Deletion.
         pr_reg_t* n1 = SLIST_FIRST(&g_listdeleted);
