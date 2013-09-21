@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <math.h>
 #include <sys/queue.h>
 #include <machine/_types.h>
 #include <sys/types.h>
@@ -51,6 +52,10 @@ typedef unsigned __int128 u128;
         breakpoint();\
     }}while(0)
 
+static inline int square(int x)
+{
+    return x*x;
+}
 typedef union{
     u8 b[8];
     uint64_t qword;
@@ -393,6 +398,7 @@ void table_stats()
             table_load_factor());
 
     u16 worst_case = 0;
+    u32 sum=0;
 
     for(u16 h=0; h< g_hashtable_cap; ++h){
         entry_t* e = &g_hashtable[h];
@@ -403,9 +409,25 @@ void table_stats()
         LOGLOG("[%u]:{orig_h=%u, diff_h=%u, key=%s, value=%s}",
                 h, orig_h, diff_h, itnexus_tostr(e->key).str, 
                 (e->value==DELETED)?"DELETED":pr_reg_tostr(e->value).str );
-        worst_case = __max(worst_case, diff_h);
+        if(e->value != DELETED){
+            sum += diff_h;
+            worst_case = __max(worst_case, diff_h);
+        }
     }
     LOGLOG("worst_case=%u", worst_case);
+    double mean = (double)(sum)/(double)(g_hashtable_cap);
+    LOGLOG("mean=%f", mean);
+    u32 sq_mean=0;
+    for(u16 h=0; h< g_hashtable_cap; ++h){
+        entry_t* e = &g_hashtable[h];
+        if( is2(e->value,NULL,DELETED) )
+            continue;
+        u16 orig_h = hash_func(e->key);
+        u16 diff_h = mod_dif(h, orig_h);
+        sq_mean += square(diff_h );
+    }
+    double stddev = sqrt((double)sq_mean/(double)(g_hashtable_cap));
+    LOGLOG("stddev=%f", stddev);
 }
 
 #define pod_dup(pod) \
