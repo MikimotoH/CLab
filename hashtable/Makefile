@@ -1,4 +1,4 @@
-SRC=hashtable.c
+SRC=hashtable.c unittest_hashtable.c
 
 CC=~/.vim/bin/cc_args.py clang
 CFLAGS = -I. -std=gnu11 -g 
