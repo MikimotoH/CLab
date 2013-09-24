@@ -20,10 +20,10 @@
 #define LOGLOG(fmtstr, ...)  \
     printf(fmtstr "\n", ## __VA_ARGS__)
 
-#define ARRAY_SIZE(x)   (sizeof(x) / sizeof((x)[0]))
+#define ARRAY_SIZE(x)   (sizeof(x)/sizeof((x)[0]))
 #define typeof(x)                       __typeof(x)
 #define LETVAR(newvar,rhs)              typeof(rhs) newvar = (rhs) 
-#define SWAP(x,y) ( {__typeof__(x) z = x ; x = y; y = z;}  )
+#define SWAP(x,y) ({ __typeof__(x) z = x ; x = y; y = z; })
 
 #define __max(x, y) ({				\
 	typeof(x) _max1 = (x);			\
@@ -56,6 +56,7 @@
         dup ? (memcpy(dup, &pod, sizeof(typeof(pod))), dup)\
             : NULL;\
      })
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types-discards-qualifiers"
 #define pod_ptr_dup(pod_ptr) \
@@ -67,4 +68,12 @@
 #pragma GCC diagnostic pop
 
 #define BZERO(x) bzero(&x, sizeof(x)) 
+
+#define is2(x,a,b) ((x)==(a) || (x) ==(b))
+
+typedef uint8_t  u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64; 
+typedef unsigned __int128 u128;
 
