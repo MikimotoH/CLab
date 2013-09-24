@@ -36,30 +36,31 @@ static inline u32 hash_multiplicative(const u8* key, size_t len,
 static inline u32
 hash_string(const char *str)
 {
-    u32 hash = 7;
+    u32 hash = 5381;
     char c;
 
     while ((c = *str++) != 0)
-        hash = (hash *31) + c; /* hash * 33 + c */
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
 
     return hash;
 }
+
 static inline u16 hash_func(const itnexus_t* nexus)
 {
-    u32 INITIAL_VALUE = 5381;
-    u32 M = 33;
     u32 h=0;
     if(nexus->protid == PROTID_FCP){
         h = hash_multiplicative( (u8*)&nexus->fcp, sizeof(nexus->fcp), 
-                INITIAL_VALUE, M);
+                5381, 33);
     }
     else if(nexus->protid == PROTID_ISCSI){
         u16 ilen = strlen(nexus->iscsi.i.b);
         u16 tlen = strlen(nexus->iscsi.t.b);
-        char str[ilen + tlen + 1];
-        memcpy(str     , nexus->iscsi.i.b, ilen);
-        memcpy(str+ilen, nexus->iscsi.t.b, tlen);
-        str[ilen+tlen] = 0;
+        PI_ASSERT(ilen>4 && tlen>4);
+
+        char str[ilen-4 + tlen-4 + 1];
+        memcpy(str       , nexus->iscsi.i.b+4, ilen-4);
+        memcpy(str+ilen-4, nexus->iscsi.t.b+4, tlen-4);
+        str[ilen-4+tlen-4] = 0;
         h = hash_string(str);
     }
     return (u16)(h % g_hashtable_cap);
@@ -67,11 +68,13 @@ static inline u16 hash_func(const itnexus_t* nexus)
         
 
 
+/*
 #define hash_func1(key) \
     (u16)(hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) \
             % g_hashtable_cap)
+*/
 //#define hash_func(key) (u16)( naiive_hash_func(key) )
-#define hash_func hash_func1
+//#define hash_func hash_func1
 
 
 /*
@@ -91,7 +94,7 @@ table_alloc(entry_t* e)
     }
 
     const itnexus_t* key = &e->pr.nexus;
-    u16 h = hash_func(e->pr.nexus);
+    u16 h = hash_func(&e->pr.nexus);
     u16 orig_h = h;
     entry_t** pe = NULL;
     u16 visited_valid = 0;
@@ -140,7 +143,7 @@ entry_t** table_find(const itnexus_t* key)
         LOGINF("hashtable is empty, find failed");
         return NULL;
     }
-    u16 h = hash_func(*key);
+    u16 h = hash_func(key);
     u16 orig_h = h;
     entry_t** pe = NULL;
     u16 visited = 0;
@@ -222,7 +225,7 @@ void table_make_key_return_home(u16 h)
     entry_t** pe = &g_hashtable[ h ];
     PI_ASSERT(!is2(*pe, NIL, DELETED));
 
-    u16  home_h = hash_func((*pe)->pr.nexus);
+    u16  home_h = hash_func(&(*pe)->pr.nexus);
     while( h != home_h)
     {
         entry_t** prev_pe = &g_hashtable[ mod(h-1)];
@@ -260,7 +263,7 @@ void table_stats()
 
         pr_reg_t* pr = &(*pe)->pr;
         itnexus_t key = pr->nexus; 
-        u16 orig_h = hash_func(key); 
+        u16 orig_h = hash_func(&key); 
         u16 diff_h = mod_dif(h, orig_h);
         LOGLOG("[%u]:{orig_h=%u, diff_h=%u, key=%s, value=%s}",
                 h, orig_h, diff_h, itnexus_tostr(key), 
@@ -279,7 +282,7 @@ void table_stats()
             continue;
         pr_reg_t* pr = &(*pe)->pr;
         itnexus_t key = pr->nexus; 
-        u16 orig_h = hash_func(key);
+        u16 orig_h = hash_func(&key);
         u16 diff_h = mod_dif(h, orig_h);
         sq_mean += square(diff_h );
     }

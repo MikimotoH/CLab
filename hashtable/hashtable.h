@@ -9,7 +9,7 @@
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
-typedef uint64_t u64;
+typedef uint64_t u64; 
 typedef unsigned __int128 u128;
 
 typedef union{
@@ -27,12 +27,14 @@ _Static_assert(sizeof(wwpn_t)==8,"");
  *                  Naming     String defined by
  *     Type  Date    Auth      "example.com" naming authority
  *    +--++-----+ +---------+ +--------------------------------+
- *    |  ||     | |         | |                                |
- *    iqn.2001-04.com.example:storage:diskarrays-sn-a8675309
+ *    |  ||     | |         | |                                | *    iqn.2001-04.com.example:storage:diskarrays-sn-a8675309
  */
-typedef struct {
+#define MAX_IQN_BUF_LEN (223+1)
+typedef struct 
+{
     char b[223+1];//plus one for Null-terminator
 } iqn_t;
+
 /*
  * Spc4r17.pdf
  * Table 362 - PROTOCOL IDENTIFIER values
@@ -73,11 +75,12 @@ typedef struct{
     (itnexus_t){.protid = PROTID_FCP, \
         .fcp.i=iport, .fcp.t=tport}
 
+
 static inline iqn_t 
 make_iscsiaddr_iqn(const char* str)
 {
     iqn_t r;
-    bzero(&r, sizeof(r));
+    BZERO(r);
     strlcpy(r.b, str, ARRAY_SIZE(r.b));
     return r;
 }
@@ -96,8 +99,8 @@ itnexus_equal(itnexus_t n1, itnexus_t n2)
         return n1.fcp.i.qword == n2.fcp.i.qword
             && n1.fcp.t.qword == n2.fcp.t.qword;
     if(n1.protid == PROTID_ISCSI && n1.protid == n2.protid)
-        return strcmp(n1.iscsi.i.b, n2.iscsi.t.b)==0
-            && strcmp(n1.iscsi.i.b, n2.iscsi.t.b)==0 ;
+        return strcmp(n1.iscsi.i.b, n2.iscsi.i.b)==0
+            && strcmp(n1.iscsi.t.b, n2.iscsi.t.b)==0 ;
     return false;
 }
 

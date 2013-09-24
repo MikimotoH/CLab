@@ -114,7 +114,12 @@ static inline u16 u16randlessthan(u16 x)
         return 0;
     return u16rand() % x;
 }
-
+static inline u32 u32randrng(u32 lower, u32 upper)
+{
+    u32 diff = upper-lower+1;
+    return u32rand()%diff + lower;
+}
+    
 
 // tports={ 0x2001000e1e09f268ULL, 
 //    0x2001000e1e09f269ULL, 
@@ -124,7 +129,11 @@ static inline u16 u16randlessthan(u16 x)
 //    0x2100000e1e116081ULL, 
 //    0x2001000e1e09f282ULL, 
 //    0x2001000e1e09f283ULL };
-#define BZERO(x) bzero(&x, sizeof(x)) 
+#define TABLE_STATS(label, ...) \
+        printf( label "\n"\
+                "-------------------------------------------------\n", ## __VA_ARGS__ ); \
+        table_stats();\
+        printf( "-------------------------------------------------\n");
 
 int main(int argc, char** argv){
     //unittest_int32mod_dif();
@@ -137,8 +146,8 @@ int main(int argc, char** argv){
     BZERO(iscsi_tports);
     // http://lkml.indiana.edu/hypermail/linux/kernel/0908.0/01082.html
     for(size_t i=0; i<ARRAY_SIZE(iscsi_tports); ++i)
-        snprintf(iscsi_tports[i].b, sizeof(iscsi_tports[i].b), 
-                "iqn.1996-04.de.suse:%02lu:1661f9ee7b5", i+1); 
+        snprintf(iscsi_tports[i].b, MAX_IQN_BUF_LEN, 
+                "iqn.2013-10.com.pizza-core:%02lu:2dadf92d0ef", i+1); 
 
     wwpn_t fcp_iports[8];
     for(size_t i=0; i< ARRAY_SIZE(fcp_iports); ++i)
@@ -147,10 +156,10 @@ int main(int argc, char** argv){
     iqn_t iscsi_iports[8];
     BZERO(iscsi_iports);
     for(size_t i=0; i< ARRAY_SIZE(iscsi_iports); ++i)
-        snprintf(iscsi_iports[i].b, sizeof(iscsi_iports[i].b),
-                "iqn.2013-10.com.pizza-core:%02lu:2dadf92d0ef", i+1);
+        snprintf(iscsi_iports[i].b, MAX_IQN_BUF_LEN, 
+                "iqn.1996-04.de.suse:%02lu:1661f9ee7b5", i+1);
 
-    srandom(time(NULL));
+    srandom( rdtsc32() );
 
     SLIST_INIT(&g_list);// Initialize the list
     SLIST_INIT(&g_listdeleted);// Initialize the list
@@ -179,6 +188,7 @@ int main(int argc, char** argv){
             slist_add( ent );
         }
     }
+
     LOGINF("slist_length=%u, g_hashtable_valid=%u", 
             slist_length(), g_hashtable_valid);
     PI_ASSERT( slist_length() == expected_total_count );
@@ -190,28 +200,42 @@ int main(int argc, char** argv){
     // Positive Test: find those already added
     SLIST_FOREACH(np, &g_list, entries){
         entry_t** pe = table_find( &np->pr.nexus );
-        PI_ASSERT( pe ); 
+        if( !pe ){
+            TABLE_STATS("table_find(key=%s) failed.", itnexus_tostr(np->pr.nexus) );
+            exit(EXIT_FAILURE);
+        }
         LOGINF("Positive test: nexus=%s, pr=%s", 
                 itnexus_tostr( (*pe)->pr.nexus ), pr_reg_tostr( (*pe)->pr));
         PI_ASSERT( memcmp( &(*pe)->pr, &np->pr, sizeof(pr_reg_t))==0 );
     }
 
     // Random Negative test
-    for(u16 i=0; i< 1000; ++i) {
+    for(u16 i=0; i< 10; ) {
         itnexus_t nexus = make_fcp_itnexus( u64rand(), u64rand() );
         if( slist_find( nexus ) == NULL ){
             LOGINF("Random Negative Test [%u], random nexus=%s", 
                     i, itnexus_tostr(nexus));
             PI_VERIFY( table_find( &nexus ) == NULL );
+            ++i;
+        }
+    }
+    for(u16 i=0; i< 10; ) {
+        iqn_t rand_tgt, rand_ini;
+        BZERO(rand_tgt); BZERO(rand_ini);
+        snprintf(rand_tgt.b, MAX_IQN_BUF_LEN, 
+                "iqn.2013-10.com.pizza-core:%02u:%lx", u32randrng(1,12), u64rand()); 
+        snprintf(rand_ini.b, MAX_IQN_BUF_LEN, 
+                "iqn.1996-04.de.suse:%02u:%lx", u32randrng(1,12), u64rand()); 
+        itnexus_t nexus = make_iscsi_itnexus(rand_ini, rand_tgt);
+        if( slist_find( nexus ) == NULL ){
+            LOGINF("Random Negative Test [%u], random nexus=%s", 
+                    i, itnexus_tostr(nexus));
+            PI_VERIFY( table_find( &nexus ) == NULL );
+            ++i;
         }
     }
    
     
-#define TABLE_STATS(label, ...) \
-        printf( label "\n"\
-                "-------------------------------------------------\n", ## __VA_ARGS__ ); \
-        table_stats();\
-        printf( "-------------------------------------------------\n");
     TABLE_STATS("After fully loaded.");
 
     u16 deleted = 0;

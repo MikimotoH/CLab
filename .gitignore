@@ -5,3 +5,5 @@ clang_log.txt
 .*.swp
 *.pyc
 *.core
+*.swo
+.swo

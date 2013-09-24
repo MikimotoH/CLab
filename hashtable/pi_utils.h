@@ -66,3 +66,5 @@
      })
 #pragma GCC diagnostic pop
 
+#define BZERO(x) bzero(&x, sizeof(x)) 
+
