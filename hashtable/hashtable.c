@@ -7,36 +7,65 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
-#include <sys/queue.h>
 
-static u32 g_pr_generation = 0;
+u32 g_pr_generation = 0;
 
 
-pr_reg_t* create_pr_reg(itnexus_t arg_nexus, u64 arg_key){
-    LETVAR(pr, (pr_reg_t*)malloc(sizeof(pr_reg_t)));
-    bzero(pr, sizeof(pr_reg_t));
-    pr->key = arg_key; pr->nexus = arg_nexus;
-    pr->generation = g_pr_generation++;
-    return pr;
+entry_t* create_entry(const itnexus_t* arg_nexus, const pr_reg_t* pr){
+    LETVAR(ent, (entry_t*)malloc(sizeof(entry_t)));
+    PI_VERIFY(ent);
+    bzero(ent, sizeof(entry_t));
+    ent->pr = *pr; 
+    return ent;
 }
 
 
-
-entry_t g_hashtable[g_hashtable_cap]={0};
+entry_t* g_hashtable[g_hashtable_cap]={0};
 u16 g_hashtable_valid=0;
 u16 g_hashtable_deleted=0;
 u16 g_hashtable_worstcase=0;
 
-static inline u32 hash_multiplicative(const u8* key, size_t len, u32 INITIAL_VALUE, u32 M)
+static inline u32 hash_multiplicative(const u8* key, size_t len, 
+        u32 INITIAL_VALUE, u32 M)
 {
    u32 hash = INITIAL_VALUE;
    for(size_t i = 0; i < len; ++i)
       hash = M * hash + key[i];
    return hash ;
 }
-static inline u16 naiive_hash_func(itnexus_t key){
-    return (u16)(key.oword % g_hashtable_cap);
+static inline u32
+hash_string(const char *str)
+{
+    u32 hash = 7;
+    char c;
+
+    while ((c = *str++) != 0)
+        hash = (hash *31) + c; /* hash * 33 + c */
+
+    return hash;
 }
+static inline u16 hash_func(const itnexus_t* nexus)
+{
+    u32 INITIAL_VALUE = 5381;
+    u32 M = 33;
+    u32 h=0;
+    if(nexus->protid == PROTID_FCP){
+        h = hash_multiplicative( (u8*)&nexus->fcp, sizeof(nexus->fcp), 
+                INITIAL_VALUE, M);
+    }
+    else if(nexus->protid == PROTID_ISCSI){
+        u16 ilen = strlen(nexus->iscsi.i.b);
+        u16 tlen = strlen(nexus->iscsi.t.b);
+        char str[ilen + tlen + 1];
+        memcpy(str     , nexus->iscsi.i.b, ilen);
+        memcpy(str+ilen, nexus->iscsi.t.b, tlen);
+        str[ilen+tlen] = 0;
+        h = hash_string(str);
+    }
+    return (u16)(h % g_hashtable_cap);
+}
+        
+
 
 #define hash_func1(key) \
     (u16)(hash_multiplicative((const u8*)(&(key)), sizeof(key), 5381, 33) \
@@ -44,33 +73,37 @@ static inline u16 naiive_hash_func(itnexus_t key){
 //#define hash_func(key) (u16)( naiive_hash_func(key) )
 #define hash_func hash_func1
 
+
 /*
  * Open Addressing - Linear Probing
  * http://en.wikipedia.org/wiki/Hash_table#Open_addressing
  * http://opendatastructures.org/versions/edition-0.1e/ods-java/5_2_LinearHashTable_Linear_.html
  * http://www.cs.rmit.edu.au/online/blackboard/chapter/05/documents/contribute/chapter/05/linear-probing.html
  */
-entry_t* table_alloc(itnexus_t key, pr_reg_t* value)
+entry_t** 
+table_alloc(entry_t* e)
 {
+    PI_ASSERT( e );
     u16 empty_buckets = g_hashtable_cap - g_hashtable_valid;
     if( empty_buckets == 0 ){
         LOGERR("hashtable is full, alloc failed");
         return NULL;
     }
 
-    u16 h = hash_func(key);
+    const itnexus_t* key = &e->pr.nexus;
+    u16 h = hash_func(e->pr.nexus);
     u16 orig_h = h;
-    entry_t* e = NULL;
+    entry_t** pe = NULL;
     u16 visited_valid = 0;
 
     do
     {
-        e = &g_hashtable[h];
-        if( is2(e->value,NULL,DELETED))
+        pe = &g_hashtable[h];
+        if( is2(*pe, NIL, DELETED))
             goto found_empty_bucket;
-        else if( itnexus_equal(e->key,  key) ){
-            LOGINF("repeat alloc same key=%s", itnexus_tostr(key));
-            return e;
+        else if( itnexus_equal((*pe)->pr.nexus, *key ) ){
+            LOGINF("repeat alloc same key=%s", itnexus_tostr(*key));
+            return pe;
         }
         // step next
         ++visited_valid;
@@ -80,113 +113,105 @@ entry_t* table_alloc(itnexus_t key, pr_reg_t* value)
     goto not_found_empty_bucket;
 
 found_empty_bucket:
-    e->key = key;
-    ++g_hashtable_valid;
-    if(e->value == DELETED)
+    if(*pe == DELETED)
         --g_hashtable_deleted;
-    e->value = value;
+    *pe = e; 
+    ++g_hashtable_valid;
     g_hashtable_worstcase = __max(g_hashtable_worstcase, visited_valid);
-    LOGDBG("Found empty bucket for key=%s, orig_h=%u, h=%u, visited_valid=%u,\n"
+    LOGDBG("Found empty bucket for key=%s, orig_h=%u, h=%u, "
+            "visited_valid=%u,\n"
             "g_hashtable_valid=%u, g_hashtable_worstcase=%u",  
-            itnexus_tostr(key), orig_h, h, visited_valid, 
+            itnexus_tostr(*key), orig_h, h, visited_valid, 
             g_hashtable_valid, g_hashtable_worstcase);
-    return e;
+    return pe;
 
 not_found_empty_bucket:
     LOGERR("Not found empty bucket for key=%s, visited_valid=%u,\n"
             "g_hashtable_valid=%u, g_hashtable_worstcase=%u", 
-            itnexus_tostr(key), visited_valid, 
+            itnexus_tostr(*key), visited_valid, 
             g_hashtable_valid, g_hashtable_worstcase);
     return NULL;
 }
 
-entry_t* table_find(itnexus_t key)
+entry_t** table_find(const itnexus_t* key)
 {
+    PI_ASSERT(key);
     if( g_hashtable_valid==0 ){
         LOGINF("hashtable is empty, find failed");
         return NULL;
     }
-    u16 h = hash_func(key);
+    u16 h = hash_func(*key);
     u16 orig_h = h;
-    entry_t* e = NULL;
-    u16 visited_valid = 0;
+    entry_t** pe = NULL;
+    u16 visited = 0;
 
     LOGTRC("h=%u",h);
 
     do{
-        e = &g_hashtable[h];
-        if( !is2(e->value,NULL,DELETED) &&  itnexus_equal(e->key, key)){
-            LOGTRC("e->value != (NULL or DELETED) &&  (e->key == key) found_key");
+        pe = &g_hashtable[h];
+        if( !is2(*pe,NIL,DELETED) &&  itnexus_equal((*pe)->pr.nexus, *key)){
+            LOGTRC("pe->value != (NIL or DELETED) &&  (pe->key == key) found_key");
             goto found_key;
         }
 
-        if( e->value == NULL ){
-            LOGTRC("if( !e->value) not_found_key ");
-            goto not_found_key;
-        }
-        PI_ASSERT( e->value == DELETED || e->value != NULL );
-
         // step next
         h = mod( h + 1);
-        if(e->value != DELETED)
-            ++visited_valid;
-    }while( visited_valid<=g_hashtable_worstcase); // h != orig_h );
+        ++visited;
+    }while( visited<=g_hashtable_worstcase); // h != orig_h );
 
     goto not_found_key;
 
 found_key:
-    LOGDBG("key=%s is found at index=%u, visited_valid=%u, \n"
+    LOGDBG("key=%s is found at index=%u, visited=%u, \n"
             "g_hashtable_valid=%u, g_hashtable_worstcase=%u", 
-            itnexus_tostr(key), h, visited_valid, 
+            itnexus_tostr(*key), h, visited, 
             g_hashtable_valid, g_hashtable_worstcase );
-    return e;
+    return pe;
+
 not_found_key:
-    LOGINF("key=%s is not found, visited_valid=%u, \n"
+    LOGINF("key=%s is not found, visited=%u, \n"
             "g_hashtable_valid=%u, g_hashtable_worstcase=%u", 
-            itnexus_tostr(key), visited_valid,
+            itnexus_tostr(*key), visited,
             g_hashtable_valid, g_hashtable_worstcase );
     return NULL;
 }
 
-pr_reg_t* table_delete(itnexus_t key)
+bool table_delete(const itnexus_t* key)
 {
-    entry_t* e = table_find(key);
-    if(!e){
-        LOGINF("key=%s does not exist.", itnexus_tostr(key));
-        return NULL;
-    }
-    else if( is2(e->value, NULL,DELETED) ){
-        LOGERR("e->value is %p for key=%s", 
-                itnexus_tostr(key), pr_reg_tostr(e->value) );
-        PI_ASSERT(0);
-        return NULL;
-    }
-    pr_reg_t* ret = e->value;
-    u16 h =  (u16)(size_t)(e - &g_hashtable[0]);
-    LOGTRC("h = %u, ret=%s", h, pr_reg_tostr(ret));
+    PI_ASSERT(key);
 
-    entry_t* next_e = &g_hashtable[ mod(h+1) ];
-    if(next_e->value == NULL){
-        e->value = NULL;
-        // no need to bridge next_e
+    entry_t** pe = table_find(key);
+    if(!pe){
+        LOGINF("key=%s does not exist.", itnexus_tostr(*key));
+        return false;
+    }
+
+    pr_reg_t* pr = &(*pe)->pr;
+    u16 h =  (u16)(size_t)(pe - &g_hashtable[0]);
+    LOGTRC("h = %u, pr=%s", h, pr_reg_tostr(*pr));
+
+    entry_t** next_pe = &g_hashtable[ mod(h+1) ];
+    if(*next_pe== NIL){
+        *pe = NIL;
+        // no need to bridge next_pe
     }
     else{
-        e->value = DELETED; 
+        *pe = DELETED; 
         g_hashtable_deleted+=1;
     }
     g_hashtable_valid-=1;
 
-    return ret;
+    return true;
 }
 
 void table_clean_deleted()
 {
     u16 h = mod(-1);
     for(; h!=0; h = mod(h-1)){
-        entry_t* e = &g_hashtable[h];
-        entry_t* prev_e = &g_hashtable[mod(h-1)];
-        if( e->value == NULL && prev_e->value == DELETED){
-            prev_e->value = NULL;
+        entry_t** pe = &g_hashtable[h];
+        entry_t** prev_pe = &g_hashtable[mod(h-1)];
+        if( *pe == NIL && *prev_pe == DELETED){
+            *prev_pe= NIL;
         }
     }
 }
@@ -194,15 +219,15 @@ void table_clean_deleted()
 void table_make_key_return_home(u16 h)
 {
     PI_ASSERT(h<g_hashtable_cap);
-    entry_t* e = &g_hashtable[ h ];
-    PI_ASSERT(!is2(e->value, NULL, DELETED));
+    entry_t** pe = &g_hashtable[ h ];
+    PI_ASSERT(!is2(*pe, NIL, DELETED));
 
-    u16  home_h = hash_func(e->key);
+    u16  home_h = hash_func((*pe)->pr.nexus);
     while( h != home_h)
     {
-        entry_t* prev_e = &g_hashtable[ mod(h-1)];
-        if(is2(prev_e->value, NULL, DELETED)){
-            SWAP(prev_e,e);
+        entry_t** prev_pe = &g_hashtable[ mod(h-1)];
+        if(is2(*prev_pe, NIL, DELETED)){
+            SWAP(*prev_pe, *pe);
         }
         h = mod(h-1);
     }
@@ -229,18 +254,19 @@ void table_stats()
     u32 sum=0;
 
     for(u16 h=0; h< g_hashtable_cap; ++h){
-        entry_t* e = &g_hashtable[h];
-        if(e->value == NULL)
+        entry_t** pe = &g_hashtable[h];
+        if(is2(*pe, NIL, DELETED))
             continue;
-        u16 orig_h = hash_func(e->key);
+
+        pr_reg_t* pr = &(*pe)->pr;
+        itnexus_t key = pr->nexus; 
+        u16 orig_h = hash_func(key); 
         u16 diff_h = mod_dif(h, orig_h);
         LOGLOG("[%u]:{orig_h=%u, diff_h=%u, key=%s, value=%s}",
-                h, orig_h, diff_h, itnexus_tostr(e->key), 
-                (e->value==DELETED)?"DELETED":pr_reg_tostr(e->value) );
-        if(e->value != DELETED){
-            sum += diff_h;
-            worst_case = __max(worst_case, diff_h);
-        }
+                h, orig_h, diff_h, itnexus_tostr(key), 
+                pr_reg_tostr(*pr) );
+        sum += diff_h;
+        worst_case = __max(worst_case, diff_h);
     }
     LOGLOG("worst_case=%u", worst_case);
     double mean = (double)(sum)/(double)(g_hashtable_cap);
@@ -248,29 +274,16 @@ void table_stats()
     // Standard Deviation
     u32 sq_mean=0;
     for(u16 h=0; h< g_hashtable_cap; ++h){
-        entry_t* e = &g_hashtable[h];
-        if( is2(e->value,NULL,DELETED) )
+        entry_t** pe = &g_hashtable[h];
+        if( is2(*pe, NIL,DELETED) )
             continue;
-        u16 orig_h = hash_func(e->key);
+        pr_reg_t* pr = &(*pe)->pr;
+        itnexus_t key = pr->nexus; 
+        u16 orig_h = hash_func(key);
         u16 diff_h = mod_dif(h, orig_h);
         sq_mean += square(diff_h );
     }
     double stddev = sqrt((double)sq_mean/(double)(g_hashtable_cap));
     LOGLOG("stddev=%f", stddev);
 }
-
-
-/*
-bool table_assign(itnexus_t key, pr_reg_t* value){
-    entry_t* e = table_alloc(key, value);
-    if(!e){
-        LOGERR("table_alloc failed");
-        return false;
-    }
-    PI_ASSERT( is2(e->value,DELETED,NULL) );
-    e->value = value;
-
-    return true;
-}
-*/
 

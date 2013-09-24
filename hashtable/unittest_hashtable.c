@@ -15,18 +15,18 @@ pr_reg_t* table_get(itnexus_t key){
 }
 */
 
-SLIST_HEAD(slisthead, pr_reg) g_list = {NULL}, g_listdeleted = {NULL};
+SLIST_HEAD(slisthead, entry) g_list = {NULL}, g_listdeleted = {NULL};
 
-void slist_add(pr_reg_t* pr)
+void slist_add(entry_t* ent)
 {
-    SLIST_INSERT_HEAD(&g_list, pr, entries);
+    SLIST_INSERT_HEAD(&g_list, ent, entries);
 }
 
 u16 slist_length()
 {
     if(SLIST_EMPTY(&g_list))
         return 0;
-    pr_reg_t  *np = NULL, *tp=NULL;
+    entry_t  *np = NULL, *tp=NULL;
     u16 len = 0;
     // Forward traversal. 
     SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
@@ -34,10 +34,11 @@ u16 slist_length()
     }
     return len;
 }
-pr_reg_t* slist_get_at_index(u16 index)
+
+entry_t* slist_get_at_index(u16 index)
 {
     u16 len = 0;
-    pr_reg_t  *np = NULL, *tp=NULL;
+    entry_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
     SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
         if(len == index){
@@ -49,24 +50,24 @@ pr_reg_t* slist_get_at_index(u16 index)
     return NULL;
 }
 
-pr_reg_t* slist_find(itnexus_t nexus)
+entry_t* slist_find(itnexus_t nexus)
 {
-    pr_reg_t  *np = NULL, *tp=NULL;
+    entry_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
     SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
-        if( itnexus_equal(np->nexus, nexus))
+        if( itnexus_equal(np->pr.nexus, nexus))
             return np;
     }
     return NULL;
 }
 
-pr_reg_t* slist_delete(itnexus_t nexus){
-    pr_reg_t  *np = NULL, *tp=NULL;
+entry_t* slist_delete(itnexus_t nexus){
+    entry_t  *np = NULL, *tp=NULL;
     // Forward traversal. 
     SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
-        if( itnexus_equal(np->nexus, nexus))
+        if( itnexus_equal(np->pr.nexus, nexus))
         {
-            SLIST_REMOVE(&g_list, np, pr_reg, entries);
+            SLIST_REMOVE(&g_list, np, entry, entries);
             return np;
         }
     }
@@ -115,68 +116,93 @@ static inline u16 u16randlessthan(u16 x)
 }
 
 
+// tports={ 0x2001000e1e09f268ULL, 
+//    0x2001000e1e09f269ULL, 
+//    0x2001000e1e09f278ULL, 
+//    0x2001000e1e09f279ULL, 
+//    0x2100000e1e116080ULL, 
+//    0x2100000e1e116081ULL, 
+//    0x2001000e1e09f282ULL, 
+//    0x2001000e1e09f283ULL };
+#define BZERO(x) bzero(&x, sizeof(x)) 
+
 int main(int argc, char** argv){
     //unittest_int32mod_dif();
 
-    u64 tports[8];
-    for(size_t i=0; i< ARRAY_SIZE(tports); ++i){
-        tports[i] = 0x2100000e1e116080ULL + i;
+    wwpn_t fcp_tports[8];
+    for(size_t i=0; i< ARRAY_SIZE(fcp_tports); ++i){
+        fcp_tports[i] = make_wwpn(0x2100000e1e116080ULL + i);
     }
-    //{ 0x2001000e1e09f268ULL, 
-    //    0x2001000e1e09f269ULL, 
-    //    0x2001000e1e09f278ULL, 
-    //    0x2001000e1e09f279ULL, 
-    //    0x2100000e1e116080ULL, 
-    //    0x2100000e1e116081ULL, 
-    //    0x2001000e1e09f282ULL, 
-    //    0x2001000e1e09f283ULL };
+    iqn_t iscsi_tports[8];
+    BZERO(iscsi_tports);
+    // http://lkml.indiana.edu/hypermail/linux/kernel/0908.0/01082.html
+    for(size_t i=0; i<ARRAY_SIZE(iscsi_tports); ++i)
+        snprintf(iscsi_tports[i].b, sizeof(iscsi_tports[i].b), 
+                "iqn.1996-04.de.suse:%02lu:1661f9ee7b5", i+1); 
+
+    wwpn_t fcp_iports[8];
+    for(size_t i=0; i< ARRAY_SIZE(fcp_iports); ++i)
+        fcp_iports[i] = make_wwpn(0x2001000e1e09f200ULL + i);
     
-    u64 iports[24];
-    for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
-        iports[i] = 0x2001000e1e09f200ULL + i;
-    }
+    iqn_t iscsi_iports[8];
+    BZERO(iscsi_iports);
+    for(size_t i=0; i< ARRAY_SIZE(iscsi_iports); ++i)
+        snprintf(iscsi_iports[i].b, sizeof(iscsi_iports[i].b),
+                "iqn.2013-10.com.pizza-core:%02lu:2dadf92d0ef", i+1);
+
     srandom(time(NULL));
 
     SLIST_INIT(&g_list);// Initialize the list
     SLIST_INIT(&g_listdeleted);// Initialize the list
 
     PI_ASSERT(slist_length()==0);
-    u16 expected_total_count = ARRAY_SIZE(tports) * ARRAY_SIZE(iports);
+    u16 expected_total_count = (ARRAY_SIZE(fcp_iports)*ARRAY_SIZE(fcp_tports)) 
+        + ( ARRAY_SIZE(iscsi_iports) * ARRAY_SIZE(iscsi_tports));
 
-    for(size_t t=0; t< ARRAY_SIZE(tports); ++t){
-        for(size_t i=0; i< ARRAY_SIZE(iports); ++i){
+    for(size_t t=0; t< ARRAY_SIZE(fcp_tports); ++t){
+        for(size_t i=0; i< ARRAY_SIZE(fcp_iports); ++i){
             u64 rk = u64rand();
-            itnexus_t nexus = make_itnexus( iports[i], tports[t] );
-            LETVAR( pr, create_pr_reg( nexus, rk ));
-            PI_VERIFY(pr);
-            PI_VERIFY(table_alloc( nexus,  pr ) != NULL );
-            slist_add( pr );
+            itnexus_t nexus = make_fcp_itnexus( fcp_iports[i], fcp_tports[t] );
+            pr_reg_t pr = make_pr_reg( nexus, rk );
+            entry_t* ent = create_entry(&nexus, &pr);
+            PI_VERIFY(table_alloc( ent ) != NULL );
+            slist_add( ent );
+        }
+    }
+    for(size_t t=0; t< ARRAY_SIZE(iscsi_tports); ++t){
+        for(size_t i=0; i< ARRAY_SIZE(iscsi_iports); ++i){
+            u64 rk = u64rand();
+            itnexus_t nexus = make_iscsi_itnexus( iscsi_iports[i], iscsi_tports[t] );
+            pr_reg_t pr = make_pr_reg( nexus, rk );
+            entry_t* ent = create_entry(&nexus, &pr);
+            PI_VERIFY(table_alloc( ent ) != NULL );
+            slist_add( ent );
         }
     }
     LOGINF("slist_length=%u, g_hashtable_valid=%u", 
             slist_length(), g_hashtable_valid);
-    PI_ASSERT(slist_length() == expected_total_count);
-    PI_ASSERT(g_hashtable_valid == expected_total_count);
+    PI_ASSERT( slist_length() == expected_total_count );
+    PI_ASSERT( g_hashtable_valid == expected_total_count );
     PI_ASSERT( slist_length() == g_hashtable_valid );
 
-    pr_reg_t  *np = NULL;
+    entry_t  *np = NULL;
     
     // Positive Test: find those already added
     SLIST_FOREACH(np, &g_list, entries){
-        entry_t* e = table_find( np->nexus );
-        PI_ASSERT( e && !is2(e->value, NULL, DELETED) );
+        entry_t** pe = table_find( &np->pr.nexus );
+        PI_ASSERT( pe ); 
         LOGINF("Positive test: nexus=%s, pr=%s", 
-                itnexus_tostr(e->value->nexus), pr_reg_tostr(e->value));
-        PI_ASSERT( memcmp(e->value, np, sizeof(pr_reg_t))==0 );
+                itnexus_tostr( (*pe)->pr.nexus ), pr_reg_tostr( (*pe)->pr));
+        PI_ASSERT( memcmp( &(*pe)->pr, &np->pr, sizeof(pr_reg_t))==0 );
     }
 
     // Random Negative test
     for(u16 i=0; i< 1000; ++i) {
-        itnexus_t nexus = make_itnexus( u64rand(), u64rand() );
+        itnexus_t nexus = make_fcp_itnexus( u64rand(), u64rand() );
         if( slist_find( nexus ) == NULL ){
             LOGINF("Random Negative Test [%u], random nexus=%s", 
                     i, itnexus_tostr(nexus));
-            PI_VERIFY( table_find( nexus ) == NULL );
+            PI_VERIFY( table_find( &nexus ) == NULL );
         }
     }
    
@@ -197,32 +223,32 @@ int main(int argc, char** argv){
             break;
         u16 idx = len/2; // u16randlessthan( len );
         LOGINF("slist_length()=%u, random index=%u", len, idx);
-        pr_reg_t* pr = slist_get_at_index(idx);
-        PI_ASSERT(pr);
-        itnexus_t key = pr->nexus;
-        SLIST_REMOVE(&g_list, pr, pr_reg, entries);
+        entry_t* ent = slist_get_at_index(idx);
+        PI_ASSERT(ent);
+        itnexus_t key = ent->pr.nexus;
+        SLIST_REMOVE(&g_list, ent, entry, entries);
         ++deleted;
 
-        pr->entries.sle_next = NULL;
-        SLIST_INSERT_HEAD(&g_listdeleted, pr, entries);
+        ent->entries.sle_next = NULL;
+        SLIST_INSERT_HEAD(&g_listdeleted, ent, entries);
 
-        if(table_delete(key) == NULL){
+        if(table_delete(&key) == false){
             LOGERR("table_delete(%s) failed.", itnexus_tostr(key));
             TABLE_STATS("After deleted key=%s", itnexus_tostr(key) );
             breakpoint();
         }
 
-        PI_ASSERT( table_find(key) == NULL );
+        PI_ASSERT( table_find(&key) == NULL );
 
         TABLE_STATS("After deleted key=%s", itnexus_tostr(key) );
 
         {
-            pr_reg_t  *np = NULL, *tempnp = NULL;
+            entry_t* np = NULL;
             u16 i = 0;
-            SLIST_FOREACH_SAFE(np, &g_listdeleted, entries, tempnp){
+            SLIST_FOREACH(np, &g_listdeleted, entries){
                 LOGINF("Negative Test: i=%u, nexus=%s", 
-                        i, itnexus_tostr(np->nexus));
-                PI_ASSERT( table_find( np->nexus ) == NULL );
+                        i, itnexus_tostr(np->pr.nexus));
+                PI_ASSERT( table_find( &np->pr.nexus ) == NULL );
                 ++i;
             }
         }
@@ -236,7 +262,7 @@ int main(int argc, char** argv){
     TABLE_STATS("After fully deleted");
 
     while (!SLIST_EMPTY(&g_listdeleted)) {// List Deletion.
-        pr_reg_t* n1 = SLIST_FIRST(&g_listdeleted);
+        entry_t* n1 = SLIST_FIRST(&g_listdeleted);
         SLIST_REMOVE_HEAD(&g_listdeleted, entries);
         free(n1);
     }
