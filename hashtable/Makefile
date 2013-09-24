@@ -11,7 +11,7 @@ all:
 
 .PHONY: clean run
 clean:
-	rm -rf *.o $(TARGET)
+	rm -rf *.o $(TARGET) $(TARGET).core
 run:
 	./$(TARGET)
 
