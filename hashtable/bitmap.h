@@ -27,7 +27,7 @@ bitmap_set(bitmap_t* self, u16 index)
 {
     div_t qr = div(index, 32);
     PI_ASSERT(qr.quot < ARRAY_SIZE(self->b));
-    return (self->b[qr.quot] | (1<<qr.rem)) != 0;
+    (self->b[qr.quot] |= (1<<qr.rem));
 }
 
 static inline void 
@@ -35,7 +35,7 @@ bitmap_unset(bitmap_t* self, u16 index)
 {
     div_t qr = div(index, 32);
     PI_ASSERT(qr.quot < ARRAY_SIZE(self->b));
-    return (self->b[qr.quot] & ~(1<<qr.rem)) != 0;
+    (self->b[qr.quot] &= ~(1<<qr.rem));
 
 }
 
@@ -75,7 +75,8 @@ bitmap_find_first_set(bitmap_t* self)
     return (u32)(-1);
 }
 
-void unittest_bitmap()
+static inline void 
+unittest_bitmap()
 {
     bitmap_t bm;
     bitmap_init(&bm);

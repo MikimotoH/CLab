@@ -1,5 +1,6 @@
 #include "hashtable_bucket.h"
 #include "pi_utils.h"
+#include "bitmap.h"
 #include <time.h>
 #include <string.h>
 
@@ -125,27 +126,38 @@ static inline u32 u32randrng(u32 lower, u32 upper)
 
 int main(int argc, char** argv){
     //unittest_int32mod_dif();
+    unittest_bitmap();
+    LOGINF("sizeof(g_hashtable)=%lu", sizeof(g_hashtable));
 
-    wwpn_t fcp_tports[8];
-    for(size_t i=0; i< ARRAY_SIZE(fcp_tports); ++i){
+    PI_VERIFY(argc==5);
+
+    u32 num_fcp_tports = atoi(argv[1]);
+    u32 num_iscsi_tports = atoi(argv[2]);
+    u32 num_fcp_iports = atoi(argv[3]);
+    u32 num_iscsi_iports = atoi(argv[4]);
+
+    wwpn_t fcp_tports[num_fcp_tports];
+    iqn_t iscsi_tports[num_iscsi_tports];
+    wwpn_t fcp_iports[num_fcp_iports];
+    iqn_t iscsi_iports[num_iscsi_iports];
+
+    for(u32 i=0; i< num_fcp_tports; ++i){
         fcp_tports[i] = make_wwpn(0x2100000e1e116080ULL + i);
     }
-    iqn_t iscsi_tports[8];
+
     BZERO(iscsi_tports);
     // http://lkml.indiana.edu/hypermail/linux/kernel/0908.0/01082.html
-    for(size_t i=0; i<ARRAY_SIZE(iscsi_tports); ++i)
+    for(u32 i=0; i<num_iscsi_tports; ++i)
         snprintf(iscsi_tports[i].b, MAX_IQN_BUF_LEN, 
-                "iqn.2013-10.com.pizza-core:%02lu:2dadf92d0ef", i+1); 
+                "iqn.2013-10.com.pizza-core:%02u:2dadf92d0ef", i+1); 
 
-    wwpn_t fcp_iports[8];
-    for(size_t i=0; i< ARRAY_SIZE(fcp_iports); ++i)
+    for(u32 i=0; i< num_fcp_iports; ++i)
         fcp_iports[i] = make_wwpn(0x2001000e1e09f200ULL + i);
     
-    iqn_t iscsi_iports[8];
     BZERO(iscsi_iports);
-    for(size_t i=0; i< ARRAY_SIZE(iscsi_iports); ++i)
+    for(u32 i=0; i< num_iscsi_iports; ++i)
         snprintf(iscsi_iports[i].b, MAX_IQN_BUF_LEN, 
-                "iqn.1996-04.de.suse:%02lu:1661f9ee7b5", i+1);
+                "iqn.1996-04.de.suse:%02u:1661f9ee7b5", i+1);
 
     srandom( rdtsc32() );
 
@@ -153,11 +165,12 @@ int main(int argc, char** argv){
     SLIST_INIT(&g_listdeleted);// Initialize the list
 
     PI_ASSERT(slist_length()==0);
-    u16 expected_total_count = (ARRAY_SIZE(fcp_iports)*ARRAY_SIZE(fcp_tports)) 
-        + ( ARRAY_SIZE(iscsi_iports) * ARRAY_SIZE(iscsi_tports));
+    u16 expected_total_count = (num_fcp_iports*num_fcp_tports) 
+        + ( num_iscsi_iports * num_iscsi_tports);
+    LOGINF("expected_total_count=%u", expected_total_count);
 
-    for(size_t t=0; t< ARRAY_SIZE(fcp_tports); ++t){
-        for(size_t i=0; i< ARRAY_SIZE(fcp_iports); ++i){
+    for(u32 t=0; t< num_fcp_tports; ++t){
+        for(u32 i=0; i< num_fcp_iports; ++i){
             u64 rk = u64rand();
             itnexus_t nexus = make_fcp_itnexus( fcp_iports[i], fcp_tports[t] );
             pr_reg_t pr = make_pr_reg( nexus, rk );
@@ -168,8 +181,8 @@ int main(int argc, char** argv){
             LOGINF("slist_length()=%u", slist_length());
         }
     }
-    for(size_t t=0; t< ARRAY_SIZE(iscsi_tports); ++t){
-        for(size_t i=0; i< ARRAY_SIZE(iscsi_iports); ++i){
+    for(u32 t=0; t< num_iscsi_tports; ++t){
+        for(u32 i=0; i< num_iscsi_iports; ++i){
             u64 rk = u64rand();
             itnexus_t nexus = make_iscsi_itnexus( iscsi_iports[i], iscsi_tports[t] );
             pr_reg_t pr = make_pr_reg( nexus, rk );
