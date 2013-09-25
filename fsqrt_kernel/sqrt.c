@@ -39,7 +39,7 @@ static struct cdev *sqrt_dev;
 
 
 
-static inline double 
+static inline long double 
 asmSqrt(long double x) 
 {
     long double o = 0;
@@ -61,17 +61,14 @@ typedef uint32_t u32;
 static int
 sqrt_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 {
-    //double x = 256;
-    //double o = asmSqrt(x);
-    //printf("asmSqrt(%d) == %d\n", (i32)x, (i32)o);
-    uprintf("Opening sqrt device.\n");
+    LOGTRC("open");
     return (0);
 }
 
 static int
 sqrt_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 {
-    uprintf("Closing sqrt device.\n");
+    LOGTRC("close");
     return (0);
 }
 
@@ -96,7 +93,7 @@ sqrt_write(struct cdev *dev, struct uio *uio, int ioflag)
     u32 number = (u32)strtoul(sqrt_message->buffer, NULL, 10 );
     LOGTRC("strtol() returned %u", number);
 
-    double s = asmSqrt((double)number);
+    double s = asmSqrt(number);
     double fraction = s - (double)(u32)s;
     LOGTRC("asmSqrt(%u) == %u.%05u", number, 
            (u32)(s), (u32)(fraction*100000));
