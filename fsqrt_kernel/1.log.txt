@@ -1,0 +1,11 @@
+$ echo "12345" > /dev/sqrt
+Opening sqrt device.
+<TRACE>[sqrt_write][82]uio->uio_iov->iov_len=6, BUFFER_SIZE-1=255
+<TRACE>[sqrt_write][88]copyin() returned error=0, bytescopied=6
+<TRACE>[sqrt_write][95]sqrt_message->buffer="12345"
+<TRACE>[sqrt_write][97]strtol() returned 12345
+<TRACE>[sqrt_write][102]asmSqrt(12345) == 111.10805
+<TRACE>[sqrt_write][105]sqrt_message->length=6
+echo: write error: no error: 0
+Closing sqrt device.
+
