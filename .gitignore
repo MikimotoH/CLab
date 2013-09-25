@@ -7,3 +7,8 @@ clang_log.txt
 *.core
 *.swo
 .swo
+@
+export_syms
+machine
+*.ko
+x86
