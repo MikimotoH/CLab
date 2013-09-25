@@ -2,13 +2,26 @@
 #include "pi_utils.h"
 #include "bitmap.h"
 #include <errno.h>
+
+#define VEC_ELEM_TYPE  pr_reg_t
 #include "vector.h"
 #include "unittest_vector.h"
 
+#define VEC_ELEM_TYPE  pr_reg_t
 
+static inline VEC_ELEM_TYPE*
+vector_find(const VECTOR_T* self, itnexus_t nexus)
+{
+    for(u16 i=0; i<self->size; ++i){
+        if( itnexus_equal(self->data[i].nexus, nexus) )
+            return &self->data[i];
+    }
+    return NULL;
+}
 
-vector_t g_vector;
-vector_t g_vectordeleted;
+VECTOR_T g_vector;
+VECTOR_T g_vectordeleted;
+#undef VEC_ELEM_TYPE
 
 #define TABLE_STATS(label, ...) \
         printf( label "\n"\
@@ -111,7 +124,8 @@ int main(int argc, char** argv){
 
     
     // Positive Test: find those already added
-    for(pr_reg_t* np = &g_vector.data[0]; np != &g_vector.data[g_vector.size]; ++np)
+
+    vector_foreach(np, g_vector)
     {
         entry_t* ent = table_find( np->nexus );
         if( !ent ){
@@ -180,7 +194,8 @@ int main(int argc, char** argv){
 
         {
             u16 i = 0;
-            for(pr_reg_t* np = g_vectordeleted.data; np!= &g_vectordeleted.data[g_vectordeleted.size]; ++np){
+            vector_foreach(np, g_vectordeleted)
+            {
                 LOGINF("Negative Test: i=%u, nexus=%s", 
                         i, itnexus_tostr(np->nexus));
                 PI_ASSERT( table_find( np->nexus ) == NULL );
@@ -197,6 +212,7 @@ int main(int argc, char** argv){
     TABLE_STATS("After fully deleted");
 
     vector_cleanup(&g_vectordeleted);
+    vector_cleanup(&g_vector);
     LOGINF("return OK");
     return 0;
 }
