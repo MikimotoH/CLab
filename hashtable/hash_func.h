@@ -21,17 +21,4 @@ hash_string(const char *str, u32 INITIAL_VALUE /*=5381*/ )
     return hash;
 }
 
-static inline u16 hash_func(itnexus_t nexus)
-{
-    u32 h=5381;
-    if(nexus.protid == PROTID_FCP){
-        h = hash_byte_array( (u8*)&nexus.fcp, sizeof(nexus.fcp), 
-                h);
-    }
-    else if(nexus.protid == PROTID_ISCSI){
-        h = hash_string(nexus.iscsi.i.b, h);
-        h = hash_string(nexus.iscsi.t.b, h);
-    }
-    return (u16)(h % g_hashtable_cap);
-}
 

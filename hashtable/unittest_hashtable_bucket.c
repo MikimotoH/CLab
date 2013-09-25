@@ -1,123 +1,15 @@
 #include "hashtable_bucket.h"
 #include "pi_utils.h"
 #include "bitmap.h"
-#include <time.h>
-#include <string.h>
-
-SLIST_HEAD(slisthead, entry) g_list = {NULL}, g_listdeleted = {NULL};
-
-void slist_add(entry_t* ent)
-{
-    SLIST_INSERT_HEAD(&g_list, ent, entries);
-}
-
-u16 slist_length()
-{
-    if(SLIST_EMPTY(&g_list))
-        return 0;
-    entry_t  *np = NULL, *tp=NULL;
-    u16 len = 0;
-    // Forward traversal. 
-    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
-        ++len;
-    }
-    return len;
-}
-
-entry_t* slist_get_at_index(u16 index)
-{
-    u16 len = 0;
-    entry_t  *np = NULL, *tp=NULL;
-    // Forward traversal. 
-    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
-        if(len == index){
-            return np;
-        }
-        ++len;
-    }
-    LOGERR("out of bound: index=%u, len=%u", index, len);
-    return NULL;
-}
-
-entry_t* slist_find(itnexus_t nexus)
-{
-    entry_t  *np = NULL, *tp=NULL;
-    // Forward traversal. 
-    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
-        if( itnexus_equal(np->pr.nexus, nexus))
-            return np;
-    }
-    return NULL;
-}
-
-entry_t* slist_delete(itnexus_t nexus){
-    entry_t  *np = NULL, *tp=NULL;
-    // Forward traversal. 
-    SLIST_FOREACH_SAFE(np, &g_list, entries, tp){
-        if( itnexus_equal(np->pr.nexus, nexus))
-        {
-            SLIST_REMOVE(&g_list, np, entry, entries);
-            return np;
-        }
-    }
-    return NULL;
-}
+#include <errno.h>
+#include "vector.h"
+#include "unittest_vector.h"
 
 
-static inline u8 u8rand()
-{
-    return (u8)(random() & 0xFF);
-}
-static inline u16 u16rand()
-{
-    u16 r = u8rand();
-    r<<=8;
-    r |= (u16)u8rand();
-    return r;
-}
-static inline u32 u32rand()
-{
-    u32 r = u16rand();
-    r<<=16;
-    r |= u16rand();
-    return r;
-}
 
-static inline u64 u64rand()
-{
-    u64 r = u32rand();
-    r<<=32;
-    r |= u32rand();
-    return r;
-}
-static inline u128 u128rand()
-{
-    u128 r = u64rand();
-    r<<=64;
-    r |= u64rand();
-    return r;
-}
-static inline u16 u16randlessthan(u16 x)
-{
-    if(x==1)
-        return 0;
-    return u16rand() % x;
-}
-static inline u32 u32randrng(u32 lower, u32 upper)
-{
-    u32 diff = upper-lower+1;
-    return u32rand()%diff + lower;
-}
-    
+vector_t g_vector;
+vector_t g_vectordeleted;
 
-// tports={ 0x2001000e1e09f268ULL, 
-//    0x2001000e1e09f269ULL, 
-//    0x2001000e1e09f278ULL, 
-//    0x2001000e1e09f279ULL, 
-//    0x2100000e1e116080ULL, 
-//    0x2100000e1e116081ULL, 
-//    0x2001000e1e09f282ULL, 
-//    0x2001000e1e09f283ULL };
 #define TABLE_STATS(label, ...) \
         printf( label "\n"\
                 "-------------------------------------------------\n", ## __VA_ARGS__ ); \
@@ -127,9 +19,17 @@ static inline u32 u32randrng(u32 lower, u32 upper)
 int main(int argc, char** argv){
     //unittest_int32mod_dif();
     unittest_bitmap();
+    unittest_vector();
     LOGINF("sizeof(g_hashtable)=%lu", sizeof(g_hashtable));
 
-    PI_VERIFY(argc==5);
+
+    if(argc!=5){
+        printf("Usage: \n" 
+                "\t %s <num_fcp_tports> <num_iscsi_tports> <num_fcp_iports> <num_iscsi_tports>\n", 
+                argv[0]);
+        return EINVAL;
+
+    }
 
     u32 num_fcp_tports = atoi(argv[1]);
     u32 num_iscsi_tports = atoi(argv[2]);
@@ -161,10 +61,10 @@ int main(int argc, char** argv){
 
     srandom( rdtsc32() );
 
-    SLIST_INIT(&g_list);// Initialize the list
-    SLIST_INIT(&g_listdeleted);// Initialize the list
+    vector_init(&g_vector, g_hashtable_cap);
+    vector_init(&g_vectordeleted, g_hashtable_cap);
 
-    PI_ASSERT(slist_length()==0);
+    PI_ASSERT(vector_length(&g_vector)==0);
     u16 expected_total_count = (num_fcp_iports*num_fcp_tports) 
         + ( num_iscsi_iports * num_iscsi_tports);
     LOGINF("expected_total_count=%u", expected_total_count);
@@ -176,9 +76,8 @@ int main(int argc, char** argv){
             pr_reg_t pr = make_pr_reg( nexus, rk );
             entry_t* ent=NULL;
             PI_VERIFY( (ent = table_alloc(nexus, pr)) != NULL );
-            PI_ASSERT(ent->entries.sle_next == NULL);
-            slist_add( ent );
-            LOGINF("slist_length()=%u", slist_length());
+            vector_append(&g_vector, ent->pr);
+            LOGINF("vector_length()=%u", vector_length(&g_vector));
         }
     }
     for(u32 t=0; t< num_iscsi_tports; ++t){
@@ -188,36 +87,35 @@ int main(int argc, char** argv){
             pr_reg_t pr = make_pr_reg( nexus, rk );
             entry_t* ent=NULL;
             PI_VERIFY((ent=table_alloc(nexus, pr)) != NULL );
-            PI_ASSERT(ent->entries.sle_next == NULL);
-            slist_add( ent );
-            LOGINF("slist_length()=%u", slist_length());
+            vector_append(&g_vector, ent->pr );
+            LOGINF("vector_length()=%u", vector_length(&g_vector));
         }
     }
 
-    LOGINF("slist_length=%u, g_hashtable_valid=%u", 
-            slist_length(), g_hashtable_valid);
-    PI_ASSERT( slist_length() == expected_total_count );
+    LOGINF("vector_length=%u, g_hashtable_valid=%u", 
+            vector_length(&g_vector), g_hashtable_valid);
+    PI_ASSERT( vector_length(&g_vector) == expected_total_count );
     PI_ASSERT( g_hashtable_valid == expected_total_count );
-    PI_ASSERT( slist_length() == g_hashtable_valid );
+    PI_ASSERT( vector_length(&g_vector) == g_hashtable_valid );
 
-    entry_t  *np = NULL;
     
     // Positive Test: find those already added
-    SLIST_FOREACH(np, &g_list, entries){
-        entry_t* ent = table_find( np->pr.nexus );
+    for(pr_reg_t* np = &g_vector.data[0]; np != &g_vector.data[g_vector.size]; ++np)
+    {
+        entry_t* ent = table_find( np->nexus );
         if( !ent ){
-            TABLE_STATS("table_find(key=%s) failed.", itnexus_tostr(np->pr.nexus) );
+            TABLE_STATS("table_find(key=%s) failed.", itnexus_tostr(np->nexus) );
             exit(EXIT_FAILURE);
         }
         LOGINF("Positive test: nexus=%s, pr=%s", 
                 itnexus_tostr( ent->pr.nexus ), pr_reg_tostr( ent->pr));
-        PI_ASSERT( memcmp( &ent->pr, &np->pr, sizeof(pr_reg_t))==0 );
+        PI_ASSERT( memcmp( &ent->pr, np, sizeof(pr_reg_t))==0 );
     }
 
     // Random Negative test
     for(u16 i=0; i< 10; ) {
         itnexus_t nexus = make_fcp_itnexus( u64rand(), u64rand() );
-        if( slist_find( nexus ) == NULL ){
+        if( vector_find(&g_vector, nexus ) == NULL ){
             LOGINF("Random Negative Test [%u], random nexus=%s", 
                     i, itnexus_tostr(nexus));
             PI_VERIFY( table_find( nexus ) == NULL );
@@ -232,7 +130,7 @@ int main(int argc, char** argv){
         snprintf(rand_ini.b, MAX_IQN_BUF_LEN, 
                 "iqn.1996-04.de.suse:%02u:%lx", u32randrng(1,12), u64rand()); 
         itnexus_t nexus = make_iscsi_itnexus(rand_ini, rand_tgt);
-        if( slist_find( nexus ) == NULL ){
+        if( vector_find( &g_vector, nexus ) == NULL ){
             LOGINF("Random Negative Test [%u], random nexus=%s", 
                     i, itnexus_tostr(nexus));
             PI_VERIFY( table_find( nexus ) == NULL );
@@ -244,22 +142,20 @@ int main(int argc, char** argv){
     TABLE_STATS("After fully loaded.");
 
     u16 deleted = 0;
-    while ( !SLIST_EMPTY(&g_list)) 
+    while ( !vector_is_empty(&g_vector)) 
     {
         // List Deletion.
-        u16 len = slist_length();
+        u16 len = vector_length(&g_vector);
         if(len==0)
             break;
-        u16 idx = len/2; // u16randlessthan( len );
-        LOGINF("slist_length()=%u, random index=%u", len, idx);
-        entry_t* ent = slist_get_at_index(idx);
-        PI_ASSERT(ent);
-        itnexus_t nexus = ent->pr.nexus;
-        SLIST_REMOVE(&g_list, ent, entry, entries);
+        u16 idx = u16rand() % len;
+        LOGINF("vector_length()=%u, random index=%u", len, idx);
+        pr_reg_t pr = *vector_get_at_index(&g_vector, idx);
+        itnexus_t nexus = pr.nexus;
+        vector_delete_at_index(&g_vector, idx);
         ++deleted;
 
-        ent->entries.sle_next = NULL;
-        SLIST_INSERT_HEAD(&g_listdeleted, ent, entries);
+        vector_append(&g_vectordeleted, pr );
 
         if(table_delete(nexus) == false){
             LOGERR("table_delete(%s) failed.", itnexus_tostr(nexus));
@@ -272,12 +168,11 @@ int main(int argc, char** argv){
         TABLE_STATS("After deleted key=%s", itnexus_tostr(nexus) );
 
         {
-            entry_t* np = NULL;
             u16 i = 0;
-            SLIST_FOREACH(np, &g_listdeleted, entries){
+            for(pr_reg_t* np = g_vectordeleted.data; np!= &g_vectordeleted.data[g_vectordeleted.size]; ++np){
                 LOGINF("Negative Test: i=%u, nexus=%s", 
-                        i, itnexus_tostr(np->pr.nexus));
-                PI_ASSERT( table_find( np->pr.nexus ) == NULL );
+                        i, itnexus_tostr(np->nexus));
+                PI_ASSERT( table_find( np->nexus ) == NULL );
                 ++i;
             }
         }
@@ -290,10 +185,7 @@ int main(int argc, char** argv){
     PI_ASSERT( g_hashtable_valid == 0);
     TABLE_STATS("After fully deleted");
 
-    while (!SLIST_EMPTY(&g_listdeleted)) {// List Deletion.
-        entry_t* n1 = SLIST_FIRST(&g_listdeleted);
-        SLIST_REMOVE_HEAD(&g_listdeleted, entries);
-    }
+    vector_cleanup(&g_vectordeleted);
     LOGINF("return OK");
     return 0;
 }

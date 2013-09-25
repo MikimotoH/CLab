@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <sys/queue.h>
 
+
 #define MAX_WWPN_BUF_LEN 8
 typedef union{
     u8 b[MAX_WWPN_BUF_LEN];
@@ -14,7 +15,29 @@ typedef union{
 } __packed wwpn_t;
 _Static_assert(sizeof(wwpn_t)==MAX_WWPN_BUF_LEN,"");
 
-#define make_wwpn(qw) (wwpn_t){.qword=qw}
+static inline wwpn_t __overloadable 
+make_wwpn(u64 qw)
+{
+   return  (wwpn_t){.qword=qw};
+}
+static inline wwpn_t __overloadable 
+make_wwpn(const u8* b)
+{
+    wwpn_t r;
+    __builtin_memcpy(r.b, b, 8);
+    return r;
+}
+static inline bool __overloadable
+wwpn_equal(wwpn_t port1, wwpn_t port2)
+{
+    return port1.qword == port2.qword;
+}
+
+static inline bool __overloadable
+wwpn_equal(const u8* b1, const u8* b2)
+{
+    return __builtin_memcmp(b1,b2,8)==0;
+}
 
 /*
  * http://tools.ietf.org/html/rfc3720#section-3.2.6.1
@@ -57,10 +80,13 @@ typedef iniport_t tgtport_t;
 typedef struct{
     u32 protid;
     union{
-        struct{
-            wwpn_t i;
-            wwpn_t t;
-        } __packed fcp;
+        union{
+            struct{
+                wwpn_t i;
+                wwpn_t t;
+            } __packed;
+            u128  oword;//octal words
+        } fcp;
         struct{
             iqn_t i;
             iqn_t t;
@@ -68,13 +94,30 @@ typedef struct{
     };
 } itnexus_t;
 
-#define make_fcp_itnexus(iport, tport) \
-    (itnexus_t){.protid = PROTID_FCP, \
-        .fcp.i=iport, .fcp.t=tport}
 
+
+static inline itnexus_t __overloadable
+make_fcp_itnexus(wwpn_t iport, wwpn_t tport)
+{
+    return (itnexus_t){ .protid = PROTID_FCP,
+        .fcp.i = iport, .fcp.t = tport };
+}
+static inline itnexus_t __overloadable
+make_fcp_itnexus(u64 iport, u64 tport)
+{
+    return (itnexus_t){ .protid = PROTID_FCP,
+        .fcp.i = make_wwpn(iport), .fcp.t= make_wwpn(tport) };
+}
+
+static inline itnexus_t __overloadable
+make_fcp_itnexus(const u8* iport, const u8* tport)
+{
+    return (itnexus_t){ .protid = PROTID_FCP,
+        .fcp.i = make_wwpn(iport), .fcp.t= make_wwpn(tport) };
+}
 
 static inline iqn_t 
-make_iscsiaddr_iqn(const char* str)
+make_iqn(const char* str)
 {
     iqn_t r;
     BZERO(r);
@@ -82,22 +125,42 @@ make_iscsiaddr_iqn(const char* str)
     return r;
 }
 
-#define make_iscsi_itnexus(iport, tport) \
-    (itnexus_t){\
-        .protid = PROTID_ISCSI, \
-        .iscsi.i= (iport), \
-        .iscsi.t= (tport)\
-    }
-
 static inline bool 
+iqn_equal(iqn_t port1, iqn_t port2)
+{
+    return __builtin_strcmp(port1.b, port2.b);
+}
+
+
+static inline itnexus_t __overloadable
+make_iscsi_itnexus(iqn_t iport, iqn_t tport)
+{
+    return (itnexus_t){
+        .protid = PROTID_ISCSI, 
+        .iscsi.i= (iport), 
+        .iscsi.t= (tport)
+    };
+}
+
+static inline itnexus_t __overloadable
+make_iscsi_itnexus(const char* iport, const char* tport)
+{
+    return (itnexus_t){
+        .protid = PROTID_ISCSI, 
+        .iscsi.i= make_iqn(iport), 
+        .iscsi.t= make_iqn(tport),
+    };
+}
+
+static inline bool  
 itnexus_equal(itnexus_t n1, itnexus_t n2)
 {
+    _Static_assert(sizeof(n1.fcp) ==sizeof(u128), "");
     if(n1.protid == PROTID_FCP && n1.protid == n2.protid)
-        return n1.fcp.i.qword == n2.fcp.i.qword
-            && n1.fcp.t.qword == n2.fcp.t.qword;
+        return n1.fcp.oword == n2.fcp.oword ;
     if(n1.protid == PROTID_ISCSI && n1.protid == n2.protid)
-        return strcmp(n1.iscsi.i.b, n2.iscsi.i.b)==0
-            && strcmp(n1.iscsi.t.b, n2.iscsi.t.b)==0 ;
+        return iqn_equal(n1.iscsi.i, n2.iscsi.i)
+            && iqn_equal(n1.iscsi.t, n2.iscsi.t) ;
     return false;
 }
 

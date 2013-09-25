@@ -1,4 +1,4 @@
-SRC=hashtable_bucket.c unittest_hashtable_bucket.c
+SRC=unittest_hashtable_bucket.c
 
 CC=~/.vim/bin/cc_args.py clang
 CFLAGS = -I. -std=gnu11 -g 
