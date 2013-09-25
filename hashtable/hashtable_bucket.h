@@ -166,7 +166,8 @@ table_alloc(itnexus_t key, pr_reg_t value)
             return e;
         }
         else if( itnexus_equal(e->pr.nexus, key ) ){
-            LOGINF("repeat alloc same key=%s", itnexus_tostr(key));
+            LOGINF("repeat alloc same key =%s, e->pr.nexus=%s", 
+                    itnexus_tostr(key), itnexus_tostr(e->pr.nexus));
             return e;
         }
         // step next

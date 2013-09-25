@@ -128,7 +128,7 @@ make_iqn(const char* str)
 static inline bool 
 iqn_equal(iqn_t port1, iqn_t port2)
 {
-    return __builtin_strcmp(port1.b, port2.b);
+    return __builtin_strcmp(port1.b, port2.b)==0;
 }
 
 

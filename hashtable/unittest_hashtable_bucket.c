@@ -23,18 +23,29 @@ int main(int argc, char** argv){
     LOGINF("sizeof(g_hashtable)=%lu", sizeof(g_hashtable));
 
 
-    if(argc!=5){
+    u32 num_fcp_tports   =0;
+    u32 num_iscsi_tports =0;
+    u32 num_fcp_iports   =0;
+    u32 num_iscsi_iports =0;
+    if(argc==1) {
+        num_fcp_tports   = 8;
+        num_iscsi_tports = 8;
+        num_fcp_iports   = 8;
+        num_iscsi_iports = 8;
+    }
+    else if(argc==5){
+        num_fcp_tports = atoi(argv[1]);
+        num_iscsi_tports = atoi(argv[2]);
+        num_fcp_iports = atoi(argv[3]);
+        num_iscsi_iports = atoi(argv[4]);
+    }
+    else{
         printf("Usage: \n" 
                 "\t %s <num_fcp_tports> <num_iscsi_tports> <num_fcp_iports> <num_iscsi_tports>\n", 
                 argv[0]);
         return EINVAL;
-
     }
 
-    u32 num_fcp_tports = atoi(argv[1]);
-    u32 num_iscsi_tports = atoi(argv[2]);
-    u32 num_fcp_iports = atoi(argv[3]);
-    u32 num_iscsi_iports = atoi(argv[4]);
 
     wwpn_t fcp_tports[num_fcp_tports];
     iqn_t iscsi_tports[num_iscsi_tports];
