@@ -245,6 +245,44 @@ table_delete(itnexus_t key)
     return true;
 }
 
+static inline pr_reg_t* 
+table_getreg(itnexus_t key)
+{
+    entry_t* e = table_find(key);
+    if(!e)
+        return NULL;
+    PI_ASSERT(e->state == VALID);
+    return &e->pr;
+}
+
+static inline entry_t* 
+iter_begin()
+{
+    entry_t* it = &g_hashtable[0];
+    for(; it != &g_hashtable[g_hashtable_cap]; ++it){
+        if(it->state == VALID)
+            return it;
+    }
+    return it;
+}
+static inline bool 
+iter_end(entry_t* it)
+{
+    return it == &g_hashtable[g_hashtable_cap];
+}
+static inline entry_t* 
+iter_inc(entry_t* it)
+{
+    for(; it != &g_hashtable[g_hashtable_cap]; ++it){
+        if(it->state == VALID){
+            return it;
+        }
+    }
+    return it;
+}
+#define table_foreach(it) \
+    for(entry_t* it = iter_begin(); !iter_end(it); it=iter_inc(it))
+
 static inline void 
 table_clean_deleted()
 {
