@@ -19,54 +19,19 @@ MALLOC_DEFINE(M_CLANG_FUNC_BLOCK, "clang_func_block buffer", "clang_func_block b
 #define KFREE(p) free(p, M_CLANG_FUNC_BLOCK )
 
 #define LOGTRC(fmtstr, ...)  \
-    uprintf("<TRACE>[%s][%u]" fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__)
+    uprintf("<TRACE>%s:%u: " fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__)
+#define LOGCRI(fmtstr, ...)  \
+    uprintf("<CRIT>%s:%u: " fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__)
 
 #define __cleanup(func)  __attribute__((cleanup(func)))
 
-typedef uint16_t u16;
-typedef uint32_t u32;
 
 typedef struct{
     char str[256];
 }short_text_t;
 
 #define T  short_text_t
-typedef struct {
-    u32 cap;
-    u32 num;
-    T*  data;
-} vector_t;
-
-static inline __always_inline bool 
-vector_resize(vector_t* self, u32 newcap)
-{
-    self->data = KREALLOC(self->data, newcap * sizeof(T));
-    if(!self->data)
-        return false;
-    self->cap = newcap;
-    return true;
-}
-
-static inline __always_inline void 
-vector_clear(vector_t* self)
-{
-    KFREE(self->data);
-    self->data = NULL;
-    self->cap = self->num = 0;
-}
-
-static inline __always_inline bool
-vector_append(vector_t* self, const T* data)
-{
-    if(!self->data)
-        return false;
-    if(self->num == self->cap){
-        if(! vector_resize(self, self->cap * 2) )
-            return false;
-    }
-    self->data[self->num++] = *data;
-    return true;
-}
+#include "vector_t.h"
 #undef T
 
 
@@ -105,6 +70,45 @@ walk_every_place( void (^visitor)(int y) )
     visitor(-3);
 }
 
+static inline __always_inline short_text_t 
+make_short_text(const char* str)
+{
+    short_text_t r;
+    strlcpy(r.str, str, sizeof(r.str));
+    return r;
+}
+
+static void test_vector(void)
+{
+    LOGTRC("enter");
+    __cleanup(vector_clear) vector_t v ={ 0 };
+    vector_append(&v, make_short_text("Apple"));
+    vector_append(&v, make_short_text("Banana"));
+    vector_append(&v, make_short_text("Cherry"));
+    vector_append(&v, make_short_text("Durian"));
+    vector_append(&v, make_short_text("Elephant"));
+    vector_append(&v, make_short_text("Firefox"));
+    vector_append(&v, make_short_text("Ghostwriter"));
+    vector_append(&v, make_short_text("Homeland Security"));
+    vector_append(&v, make_short_text("Illinois"));
+    vector_append(&v, make_short_text("Jeremy"));
+    vector_append(&v, make_short_text("Klukluklux"));
+    vector_append(&v, make_short_text("Led Zeppline"));
+    vector_append(&v, make_short_text("Mammoth"));
+    vector_append(&v, make_short_text("Negromonia"));
+    vector_append(&v, make_short_text("Ophelia"));
+    vector_append(&v, make_short_text("Puritans"));
+    vector_append(&v, make_short_text("Que sera sera"));
+    vector_append(&v, make_short_text("Rolling stone"));
+    vector_append(&v, make_short_text("Street Figther"));
+    vector_append(&v, make_short_text("Thorton"));
+    vector_append(&v, make_short_text("Ulysses"));
+    vector_append(&v, make_short_text("Veni Vidi Vici"));
+    vector_append(&v, make_short_text("Whopper"));
+    vector_append(&v, make_short_text("X-men"));
+    vector_append(&v, make_short_text("ZZtop"));
+}
+
 static int
 clang_func_block_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 {
@@ -114,6 +118,8 @@ clang_func_block_open(struct cdev *dev, int oflags, int devtype, struct thread *
     x = 11;
     vv(-3);
     walk_every_place(vv);
+
+    test_vector();
     return (0);
 }
 
