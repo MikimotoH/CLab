@@ -6,6 +6,7 @@
 #include <sys/conf.h>
 #include <sys/uio.h>
 #include <sys/malloc.h>
+#include <Block.h>
 
 #define BUFFER_SIZE	256
 
@@ -26,7 +27,7 @@ static struct cdevsw clang_func_block_cdevsw = {
 	.d_close =	clang_func_block_close,
 	.d_read =	clang_func_block_read,
 	.d_write =	clang_func_block_write,
-	.d_name =	"sqrt"
+	.d_name =	"clang_func_block"
 };
 
 typedef struct clang_func_block {
@@ -43,14 +44,21 @@ typedef uint32_t u32;
 
 void * _NSConcreteStackBlock[32] = { 0 };
 
+static void 
+walk_every_place( void (^visitor)(int y) )
+{
+    visitor(-3);
+}
+
 static int
 clang_func_block_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 {
     LOGTRC("open");
     int x = 10;
-    void (^vv)(void) = ^{ LOGTRC("x is %d", x); };
+    void (^vv)(int y) = ^(int y){ LOGTRC("x is %d, y=%d", x, y); };
     x = 11;
-    vv();
+    vv(-3);
+    walk_every_place(vv);
     return (0);
 }
 
