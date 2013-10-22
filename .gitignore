@@ -11,4 +11,6 @@ clang_log.txt
 export_syms
 machine
 *.ko
+*.ko.debug
+*.ko.symbols
 x86
