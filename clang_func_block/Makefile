@@ -2,6 +2,7 @@
 CC=clang
 KMOD=clang_func_block	
 SRCS=clang_func_block.c	
+DEBUG_FLAGS=-g
 
 .PHONY: clean
 clean:
@@ -18,5 +19,5 @@ CFLAGS := $(CFLAGS:-mno-sse=)
 CFLAGS := $(CFLAGS:-msoft-float=)
 CFLAGS := $(CFLAGS:-O2=)
 CFLAGS := $(CFLAGS:-O1=)
-CFLAGS += -g -std=gnu11 -O0 -fblocks
+CFLAGS += -g -std=gnu11 -O0 -fblocks -fno-omit-frame-pointer
 

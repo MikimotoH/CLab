@@ -8,13 +8,68 @@
 #include <sys/malloc.h>
 #include <Block.h>
 
+#include "pi_util.h"
+
 #define BUFFER_SIZE	256
 
 MALLOC_DECLARE(M_CLANG_FUNC_BLOCK);
-MALLOC_DEFINE(M_CLANG_FUNC_BLOCK, "clang_func_block buffer", "buffer for clang_func_block driver");
+MALLOC_DEFINE(M_CLANG_FUNC_BLOCK, "clang_func_block buffer", "clang_func_block buffer");
+
+#define KREALLOC(p, n) reallocf(p, n, M_CLANG_FUNC_BLOCK, M_WAITOK | M_ZERO )
+#define KFREE(p) free(p, M_CLANG_FUNC_BLOCK )
 
 #define LOGTRC(fmtstr, ...)  \
     uprintf("<TRACE>[%s][%u]" fmtstr "\n", __func__, __LINE__, ## __VA_ARGS__)
+
+#define __cleanup(func)  __attribute__((cleanup(func)))
+
+typedef uint16_t u16;
+typedef uint32_t u32;
+
+typedef struct{
+    char str[256];
+}short_text_t;
+
+#define T  short_text_t
+typedef struct {
+    u32 cap;
+    u32 num;
+    T*  data;
+} vector_t;
+
+static inline __always_inline bool 
+vector_resize(vector_t* self, u32 newcap)
+{
+    self->data = KREALLOC(self->data, newcap * sizeof(T));
+    if(!self->data)
+        return false;
+    self->cap = newcap;
+    return true;
+}
+
+static inline __always_inline void 
+vector_clear(vector_t* self)
+{
+    KFREE(self->data);
+    self->data = NULL;
+    self->cap = self->num = 0;
+}
+
+static inline __always_inline bool
+vector_append(vector_t* self, const T* data)
+{
+    if(!self->data)
+        return false;
+    if(self->num == self->cap){
+        if(! vector_resize(self, self->cap * 2) )
+            return false;
+    }
+    self->data[self->num++] = *data;
+    return true;
+}
+#undef T
+
+
 
 static d_open_t		clang_func_block_open;
 static d_close_t	clang_func_block_close;
